@@ -2,7 +2,7 @@
 # Placeholder values only - never commit real secrets here. See infra/provision.sh
 # for how these get provisioned/filled in automatically for a new project.
 
-name = "REPLACE_WITH_PROJECT_NAME"  # convention: same slug as the GitHub repo name
+name = "seng"  # convention: same slug as the GitHub repo name
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -20,12 +20,12 @@ compatibility_flags = ["nodejs_compat"]
 # remote, no flag needed) - easy to conflate the two.
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "2a33a920b20c471b8c0b023f0098c6f6"
 
 # --- Non-secret configuration (safe to commit) ---
 [vars]
 # CORS is locked to exactly this one origin - the project's GitHub Pages site.
-ALLOWED_ORIGIN = "https://REPLACE_WITH_GITHUB_USERNAME.github.io"
+ALLOWED_ORIGIN = "https://fddigi.github.io"
 # Session token lifetime in days (default 30). Auth is a bearer token in
 # localStorage, NOT a cookie - see worker/src/middleware.ts for why (Safari
 # blocks third-party cookies outright; GitHub Pages + Worker are different
