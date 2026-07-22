@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import logging
+import re
 
 from scraper_core.local_db import LocalStore
 from scraper_core.watchdog import SourceTimeoutError, run_with_timeout
@@ -26,6 +27,33 @@ from scraper_core.watchdog import SourceTimeoutError, run_with_timeout
 from .schema_utils import add_column_if_missing
 
 logger = logging.getLogger(__name__)
+
+# 2026-07-22: mønster-baseret auto-afvisning ud over auto_dismiss_brands
+# (IKEA/JYSK) - tilføjet efter en kritisk gennemgang (Claude Opus) af 167
+# konkrete fund viste at den STØRSTE støjkilde var løsdele (gavl/stel/
+# lameller/betræk), ikke mærke. Disse regler beskyttes af
+# auto_dismiss_whitelist_keywords (se config.yaml) - IKKE af
+# auto_dismiss_brands-tjekket, som stadig gælder ubetinget.
+#
+# Alle mønstre er FORANKREDE (^) eller kræver hele ord (\b) - bevidst
+# konservative, så de kun rammer annoncer der reelt KUN er løsdelen, ikke en
+# hel seng der blot NÆVNER delen (fx "Dobbeltseng inkl. madrasser og
+# topmadras" skal IKKE ramt af løsdele- eller topmadras-reglen).
+_LOOSE_PART_PATTERNS = [
+    (re.compile(r"^(senge\s*gavl|hovedgavl|sengegærde)\b", re.I), "løsdel (gavl)"),
+    (
+        re.compile(
+            r"^(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller)\b",
+            re.I,
+        ),
+        "løsdel (stel/ramme/lameller)",
+    ),
+    (re.compile(r"(madras\s*)?betræk", re.I), "løsdel (betræk)"),
+]
+_LAGEN_PATTERN = re.compile(r"\blagen\b", re.I)
+_SEEKING_PATTERN = re.compile(r"^søger\b", re.I)
+_TOPMADRAS_ALONE_PATTERN = re.compile(r"^top\s*madras\b", re.I)
+_SENG_PATTERN = re.compile(r"\bseng\w*\b", re.I)  # seng/senge/sengen/senges osv.
 
 TARGET_TABLE = "listings"
 
@@ -61,17 +89,46 @@ def make_item_key(url: str) -> str:
 
 
 def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str | None]:
-    """Returnerer (dismissed, reason) baseret på config.yaml:auto_dismiss_brands -
-    gælder ikke mål der selv har skip_auto_dismiss: true (se config.yaml:
-    "Valevåg (IKEA)", som bevidst SØGER efter en IKEA-model)."""
+    """Returnerer (dismissed, reason). Rækkefølge er bevidst:
+
+    1. skip_auto_dismiss (config.yaml: "Valevåg (IKEA)", som bevidst SØGER
+       efter en IKEA-model) - undtager målet fra ALT nedenfor, ubetinget.
+    2. auto_dismiss_brands (IKEA/JYSK) - ubetinget, IKKE beskyttet af
+       whitelisten i punkt 3 (mærke-kvalitet er en anden akse end løsdel-
+       mønstrene, og de to bør aldrig kunne modsige hinanden i samme titel).
+    3. Whitelist: et ønske-mærke ELLER en tydelig "seng"+"madras"-kombination
+       forhindrer punkt 4's mønster-regler (men IKKE punkt 2's mærke-tjek).
+    4. Mønster-regler (løsdele/lagen/søger/topmadras-alene).
+    """
     targets_by_name = {t["name"]: t for t in config.get("targets", [])}
     if targets_by_name.get(target_name, {}).get("skip_auto_dismiss"):
         return False, None
 
     title_lower = title.lower()
+
     for brand in config.get("auto_dismiss_brands", []):
         if brand.lower() in title_lower:
             return True, f"auto:{brand.lower()}"
+
+    whitelist = config.get("auto_dismiss_whitelist_keywords", [])
+    if any(w.lower() in title_lower for w in whitelist):
+        return False, None
+    if _SENG_PATTERN.search(title) and "madras" in title_lower:
+        return False, None
+
+    for pattern, reason in _LOOSE_PART_PATTERNS:
+        if pattern.search(title):
+            return True, f"auto:{reason}"
+
+    if _LAGEN_PATTERN.search(title):
+        return True, "auto:lagen"
+
+    if _SEEKING_PATTERN.search(title):
+        return True, "auto:søges-annonce"
+
+    if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
+        return True, "auto:topmadras-alene"
+
     return False, None
 
 

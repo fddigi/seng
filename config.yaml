@@ -42,6 +42,24 @@ auto_dismiss_brands:
   - ikea
   - jysk
 
+# 2026-07-22: Opus-kritik af 167 konkrete fund viste at den STØRSTE støjkilde
+# ikke var mærke, men LØSDELE (gavle/stel/lameller/betræk) samt "lagen",
+# "søger..."-annoncer og topmadras solgt ALENE - se pipeline.py:_auto_dismiss
+# for selve mønster-logikken (regex, ikke bare substring). Disse mønster-
+# regler (IKKE auto_dismiss_brands ovenfor) beskyttes af whitelisten
+# nedenfor: et ønske-mærke ELLER en tydelig "seng"+"madras"-kombination i
+# titlen forhindrer alle mønster-reglerne i at ramme - fx "DUX MADRASSER"
+# eller "Ilva enkeltseng med topmadras" skal ALDRIG udelukkes af løsdele-
+# eller topmadras-reglen.
+auto_dismiss_whitelist_keywords:
+  - jensen
+  - dunlopillo
+  - auping
+  - wonderland
+  - dux
+  - carpe diem
+  - hästens
+
 playwright:
   headless: true
   min_delay_s: 3
