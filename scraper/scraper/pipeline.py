@@ -110,6 +110,13 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
         if brand.lower() in title_lower:
             return True, f"auto:{brand.lower()}"
 
+    # Fysisk størrelsesbegrænsning - ubetinget som mærke-tjekket ovenfor,
+    # IKKE beskyttet af whitelisten nedenfor (forkert størrelse passer ikke,
+    # uanset hvor godt mærket er).
+    for size in config.get("auto_dismiss_sizes", []):
+        if re.search(rf"(?<!\d){size}(?!\d)", title):
+            return True, f"auto:størrelse-{size}"
+
     whitelist = config.get("auto_dismiss_whitelist_keywords", [])
     if any(w.lower() in title_lower for w in whitelist):
         return False, None

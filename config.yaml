@@ -42,6 +42,14 @@ auto_dismiss_brands:
   - ikea
   - jysk
 
+# Fysisk størrelsesbegrænsning (længde i cm) - IKKE en kvalitets-/støjvurdering
+# som de andre regler, derfor ubetinget som auto_dismiss_brands: et ønske-
+# mærke i en forkert størrelse passer stadig ikke i rummet. Matcher tal der
+# IKKE er en del af et større tal (fx rammer ikke "1210"), se pipeline.py.
+auto_dismiss_sizes:
+  - 210
+  - 220
+
 # 2026-07-22: Opus-kritik af 167 konkrete fund viste at den STØRSTE støjkilde
 # ikke var mærke, men LØSDELE (gavle/stel/lameller/betræk) samt "lagen",
 # "søger..."-annoncer og topmadras solgt ALENE - se pipeline.py:_auto_dismiss
