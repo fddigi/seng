@@ -33,6 +33,16 @@ targets:
   - name: "Valevåg (IKEA)"
     url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
     skip_auto_dismiss: true
+  # 2026-07-22: titel-tekst-match ("jysk" i auto_dismiss_brands) fanger IKKE
+  # annoncer hvor sælgeren aldrig skriver mærket i titlen, kun DBA's egen
+  # strukturerede mærke-tag (fundet: https://www.dba.dk/recommerce/forsale/
+  # item/23259908 "Boxmadras m stålrørsben 24cm" - reelt en JYSK-madras, men
+  # ordet "jysk" står INGEN steder i titlen). brand=9608 er JYSKs bekræftede
+  # mærke-ID på DBA (fundet via mærke-facetten på kategorisiden). Alt fundet
+  # her afvises UBETINGET - se force_dismiss_reason i pipeline.py.
+  - name: "JYSK (mærke-ID, altid afvist)"
+    url: "https://www.dba.dk/recommerce/forsale/search?brand=9608&sub_category=1.78.5197"
+    force_dismiss_reason: "auto:jysk-brand-id"
 
 # Mærker der auto-afvises (lav kvalitet/ikke-interesse) ved indsættelse -
 # gælder IKKE mål med skip_auto_dismiss: true (se Valevåg ovenfor). Kun sat

@@ -91,17 +91,26 @@ def make_item_key(url: str) -> str:
 def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str | None]:
     """Returnerer (dismissed, reason). Rækkefølge er bevidst:
 
+    0. force_dismiss_reason (config.yaml: "JYSK (mærke-ID, altid afvist)") -
+       målet søger via DBA's EGET mærke-ID (brand=), ikke titel-tekst, netop
+       fordi sælgere ikke altid skriver mærket i titlen (se targetets
+       kommentar i config.yaml for et konkret eksempel). Alt herfra afvises
+       ubetinget, FØR noget som helst andet tjekkes.
     1. skip_auto_dismiss (config.yaml: "Valevåg (IKEA)", som bevidst SØGER
        efter en IKEA-model) - undtager målet fra ALT nedenfor, ubetinget.
-    2. auto_dismiss_brands (IKEA/JYSK) - ubetinget, IKKE beskyttet af
-       whitelisten i punkt 3 (mærke-kvalitet er en anden akse end løsdel-
-       mønstrene, og de to bør aldrig kunne modsige hinanden i samme titel).
+    2. auto_dismiss_brands (IKEA/JYSK titel-tekst-match) - ubetinget, IKKE
+       beskyttet af whitelisten i punkt 3 (mærke-kvalitet er en anden akse
+       end løsdel-mønstrene, og de to bør aldrig kunne modsige hinanden i
+       samme titel).
     3. Whitelist: et ønske-mærke ELLER en tydelig "seng"+"madras"-kombination
        forhindrer punkt 4's mønster-regler (men IKKE punkt 2's mærke-tjek).
     4. Mønster-regler (løsdele/lagen/søger/topmadras-alene).
     """
     targets_by_name = {t["name"]: t for t in config.get("targets", [])}
-    if targets_by_name.get(target_name, {}).get("skip_auto_dismiss"):
+    target_cfg = targets_by_name.get(target_name, {})
+    if target_cfg.get("force_dismiss_reason"):
+        return True, target_cfg["force_dismiss_reason"]
+    if target_cfg.get("skip_auto_dismiss"):
         return False, None
 
     title_lower = title.lower()
