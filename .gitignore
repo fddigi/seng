@@ -1,0 +1,35 @@
+# Secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local data (SQLite files, launchd logs)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+*.log
+
+# Node / Worker
+node_modules/
+worker/node_modules/
+worker/.wrangler/
+worker/dist/
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

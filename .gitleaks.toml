@@ -1,0 +1,11 @@
+title = "gitleaks config for scraper-boilerplate"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe placeholder files - no real secrets, only variable names and REPLACE_WITH_* placeholders"
+paths = [
+  '''\.env\.example$''',
+  '''wrangler\.toml$''',
+]

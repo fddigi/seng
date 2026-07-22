@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <title>Log ind</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>Log ind</h1>
+  <form id="login-form">
+    <label>Brugernavn <input type="text" id="username" autocomplete="username" required /></label><br />
+    <label>Password <input type="password" id="password" autocomplete="current-password" required /></label><br />
+    <button type="submit">Log ind</button>
+  </form>
+  <p id="error" style="color: red"></p>
+
+  <script src="config.js"></script>
+  <script>
+    // No client-side password checks or shared API keys here - the Worker is the
+    // only place credentials are ever verified. This form just relays them once.
+    //
+    // The session lives as a bearer token in localStorage, NOT a cookie - GitHub
+    // Pages (this page) and the Worker (API_BASE) are on different domains, and
+    // Safari blocks third-party cookies outright regardless of SameSite. A token
+    // in localStorage, sent as an Authorization header, works in every browser.
+    document.getElementById("login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      const errorEl = document.getElementById("error");
+      errorEl.textContent = "";
+
+      try {
+        const res = await fetch(`${API_BASE}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errorEl.textContent = data.error || "Login mislykkedes.";
+          return;
+        }
+        localStorage.setItem("session_token", data.token);
+        window.location.href = "index.html";
+      } catch {
+        errorEl.textContent = "Kunne ikke kontakte serveren.";
+      }
+    });
+  </script>
+</body>
+</html>

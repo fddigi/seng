@@ -1,0 +1,73 @@
+name: Bootstrap new project
+
+# Run this ONCE after creating a repository from this template:
+#   Actions tab -> "Bootstrap new project" -> Run workflow.
+#
+# Provisions the Turso database, deploys the Cloudflare Worker + sets its
+# secrets, enables GitHub Pages (serving frontend/), and writes the generated
+# identifiers back as repo secrets. See infra/provision.sh for the full logic -
+# this workflow is a thin wrapper around it.
+#
+# REQUIRES these ORGANIZATION-level GitHub secrets (Settings -> Secrets and
+# variables -> Actions -> set at the ORGANIZATION level, not per-repo, so every
+# new project created from this template inherits them automatically without
+# re-entering credentials each time):
+#   TURSO_PLATFORM_TOKEN   - Turso Platform API token
+#   TURSO_ORG              - your Turso organization slug
+#   CLOUDFLARE_API_TOKEN   - Cloudflare API token (Workers + KV + Pages edit)
+#   CLOUDFLARE_ACCOUNT_ID  - Cloudflare account id
+#
+# OPTIONAL org-level secret:
+#   HEALTHCHECKS_API_KEY   - Healthchecks.io Management API key. If set, this
+#                            workflow auto-creates a per-project healthcheck and
+#                            writes its ping URL as the HEALTHCHECK_URL repo
+#                            secret. If unset, that step is silently skipped.
+#
+# This workflow has NOT been run against a real account as part of building
+# this template - see README.md, "Hvad er IKKE bygget/eksekveret i denne skabelon".
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # provision.sh commits generated wrangler.toml/config.js back to main
+    steps:
+      - uses: actions/checkout@v4
+
+      # wrangler@4.110.0 (pinned below) requires Node >=22 - a previous Node 20
+      # pin here made wrangler fail near-instantly with no network call, easy
+      # to mistake for a logic bug in the KV-namespace code below instead.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install wrangler + jq
+        run: |
+          npm install -g wrangler@4.110.0  # pinned: unpinned wrangler drifted CLI output format mid-migration
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: Install worker dependencies
+        # provision.sh calls `wrangler deploy` from worker/, which needs its
+        # own npm deps (hono, @libsql/client, ...) installed first - ci.yml
+        # and deploy.yml both already had this step, bootstrap.yml didn't.
+        working-directory: worker
+        run: npm ci
+
+      - name: Run infra/provision.sh
+        env:
+          TURSO_PLATFORM_TOKEN: ${{ secrets.TURSO_PLATFORM_TOKEN }}
+          TURSO_ORG: ${{ secrets.TURSO_ORG }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HEALTHCHECKS_API_KEY: ${{ secrets.HEALTHCHECKS_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: ./infra/provision.sh
+
+      - name: Next step
+        run: |
+          echo "Bootstrap complete. Now create the first admin login:"
+          echo "  ./infra/add-user.sh"

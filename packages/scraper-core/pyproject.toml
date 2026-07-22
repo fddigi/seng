@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scraper-core"
+version = "0.1.0"
+description = "Shared library for the scraper -> local SQLite -> Turso delta-sync pattern. In a real multi-project setup this package would live in its own git repo and be installed via `pip install git+https://github.com/<you>/scraper-core.git`. Here it lives inline for boilerplate convenience."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+    # !=0.3.1: that release's own metadata declares sphinx-press-theme (and
+    # transitively Sphinx + 8 sphinxcontrib packages) as a REQUIRED runtime
+    # dependency - verified directly (`pip show libsql-client` on 0.3.1 lists
+    # it under "Requires"). Almost certainly an upstream docs-dependency
+    # misclassification, not something intentional to depend on. 0.3.0 and
+    # earlier only require aiohttp + typing-extensions, as expected. Found
+    # via a real project (PLAGG) retrofitting scraper-core; re-check this
+    # exclusion next time libsql-client cuts a new release.
+    "libsql-client>=0.3.0,!=0.3.1",
+    "pydantic-settings>=2.2",
+    "requests>=2.31",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+include = ["scraper_core*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: Python (ruff + tests + smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scraper-core
+        run: pip install -e "packages/scraper-core[dev]"
+
+      - name: Install scraper (dummy example)
+        run: pip install -e "scraper[dev]"
+
+      - name: Ruff lint
+        run: ruff check packages/scraper-core scraper
+
+      - name: Unit tests (delta-sync logic, mocked Turso client)
+        run: pytest packages/scraper-core/tests -q
+
+      - name: Import smoke test
+        run: python -c "import scraper_core, scraper.main; print('import OK')"
+
+      - name: Local SQLite schema + scrape smoke test
+        # No TURSO_* credentials set here on purpose: this exercises the
+        # graceful local-only fallback (schema creation + dedup + outbox
+        # queueing) against a fresh local SQLite file, without needing a
+        # Turso account in CI.
+        #
+        # SAFE ONLY because the dummy example's SCRAPE_SOURCE_URL points at a
+        # stable, public test API - it is NOT safe to run this step unmodified
+        # once you replace the dummy source with real, live, or rate-limited/
+        # bot-protected sources (the kind most real scraper projects use):
+        # every push/PR would then hit those live sites from a shared,
+        # easily-blocklisted GitHub Actions IP range, risking a ban of the
+        # runner IP for everyone, not just this repo.
+        #
+        # When you outgrow the dummy example, replace this step with EITHER:
+        #   (a) an import/config/schema-only smoke test with no live network
+        #       calls at all (safest - just proves the plumbing works), or
+        #   (b) a config override that disables all real sources for CI
+        #       specifically, e.g. a dedicated `config.ci-smoke.yaml` fixture
+        #       with every source flagged off, selected via an env var your
+        #       config loader checks before falling back to the normal
+        #       `.env`/`config.yaml` (see `fddigi/pa-speakers`'s
+        #       `RCF_CONFIG_PATH` override for a working example of this
+        #       pattern - it lets the smoke test still verify settings/
+        #       LocalStore/schema/graceful-fallback plumbing without ever
+        #       reaching a real, rate-limited marketplace).
+        # If any of your sources use Playwright, also add a
+        # `playwright install --with-deps chromium` step before this one -
+        # the dummy example doesn't need it, so it isn't here by default.
+        run: |
+          rm -f data/ci-smoke.db
+          LOCAL_SQLITE_PATH=./data/ci-smoke.db python -m scraper.main
+
+  worker:
+    name: Worker (typecheck + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches bootstrap.yml/deploy.yml's pin - wrangler@4.110.0 requires Node >=22.
+      # This job doesn't call wrangler directly (only tsc/vitest), so it likely
+      # wasn't broken by the mismatch, but keeping all three workflows on the same
+      # Node version avoids relearning this the hard way in a fourth place later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm ci
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: "Unit tests (auth: password hash + session token signing)"
+        run: npx vitest run
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Calls the gitleaks CLI directly instead of gitleaks/gitleaks-action -
+      # the Action wrapper now requires a paid GITLEAKS_LICENSE secret for
+      # organization accounts (a business-model change in the wrapper, not in
+      # gitleaks itself, which is still free/open source). This job failed on
+      # every single push for an entire real project's migration before this
+      # fix - it never blocked deploy.yml (separate workflow), so the failure
+      # was easy to miss.
+      #
+      # Pinned to a specific version (not "latest") for the same reason
+      # wrangler is pinned elsewhere in this template: an unpinned tag/release
+      # can change behavior (or, as happened here, licensing terms) without
+      # warning. Bump deliberately, not automatically.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar xz gitleaks
+
+      - name: Run gitleaks
+        run: ./gitleaks detect --source . --verbose --redact

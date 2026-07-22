@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scraper-dummy-example"
+version = "0.1.0"
+description = "Example scraper project built on scraper-core. Replace scraper/sources/jsonplaceholder.py with your own project-specific source."
+requires-python = ">=3.11"
+dependencies = [
+    "scraper-core>=0.1.0",
+]
+
+[project.scripts]
+scraper-run = "scraper.main:run"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+include = ["scraper*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

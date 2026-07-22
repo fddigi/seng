@@ -1,0 +1,42 @@
+# Cloudflare Worker config for this project's API proxy.
+# Placeholder values only - never commit real secrets here. See infra/provision.sh
+# for how these get provisioned/filled in automatically for a new project.
+
+name = "REPLACE_WITH_PROJECT_NAME"  # convention: same slug as the GitHub repo name
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# --- KV namespace used for login rate limiting (infra/lib see rateLimit.ts) ---
+# Create once with: wrangler kv namespace create RATE_LIMIT_KV
+# Then paste the returned "id" (and, for local dev, "preview_id") below.
+#
+# Debugging a namespace's actual CONTENTS later? `wrangler kv key
+# list/get/put/delete` operate on a LOCAL simulated store by default (the
+# same mechanism `wrangler dev` uses) - NOT the real Cloudflare KV, even
+# against a real namespace id. Always add `--remote` when inspecting a real
+# environment's data, e.g. `wrangler kv key list --namespace-id <id> --remote`.
+# This is a different distinction from namespace create/list/delete (always
+# remote, no flag needed) - easy to conflate the two.
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# --- Non-secret configuration (safe to commit) ---
+[vars]
+# CORS is locked to exactly this one origin - the project's GitHub Pages site.
+ALLOWED_ORIGIN = "https://REPLACE_WITH_GITHUB_USERNAME.github.io"
+# Session token lifetime in days (default 30). Auth is a bearer token in
+# localStorage, NOT a cookie - see worker/src/middleware.ts for why (Safari
+# blocks third-party cookies outright; GitHub Pages + Worker are different
+# domains).
+SESSION_TOKEN_MAX_AGE_DAYS = "30"
+
+# --- Secrets - NEVER put these in this file. Set via `wrangler secret put <NAME>` ---
+# (infra/provision.sh and infra/add-user.sh document/perform these calls)
+#
+#   wrangler secret put TURSO_DATABASE_URL     # e.g. libsql://<db>-<org>.turso.io
+#   wrangler secret put TURSO_AUTH_TOKEN       # scoped Turso db auth token
+#   wrangler secret put SESSION_HMAC_SECRET    # random 32+ byte secret, e.g. `openssl rand -base64 32`
+#   wrangler secret put ADMIN_USER             # v1 "secret-mode" admin username
+#   wrangler secret put ADMIN_PW_HASH          # v1 "secret-mode" admin password hash

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON_BIN__</string>
+        <string>-m</string>
+        <string>scraper.main</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKING_DIR__</string>
+
+    <!-- Runs every N seconds (see Makefile SCRAPE_INTERVAL_SECONDS), plus once
+         immediately on load (RunAtLoad) and once whenever the Mac wakes up
+         after having missed a run (StartInterval semantics). -->
+    <key>StartInterval</key>
+    <integer>__INTERVAL_SECONDS__</integer>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_DIR__/scraper.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__LOG_DIR__/scraper.err.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
