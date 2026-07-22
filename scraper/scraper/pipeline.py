@@ -67,25 +67,41 @@ CREATE TABLE IF NOT EXISTS listings (
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     dismissed INTEGER NOT NULL DEFAULT 0,
-    dismissed_reason TEXT
+    dismissed_reason TEXT,
+    brand TEXT
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
 
 _INSERT_SQL = """
 INSERT INTO listings (item_key, target, title, price_dkk, url, first_seen, last_seen,
-    dismissed, dismissed_reason)
+    dismissed, dismissed_reason, brand)
 VALUES (:item_key, :target, :title, :price_dkk, :url, :first_seen, :last_seen,
-    :dismissed, :dismissed_reason)
+    :dismissed, :dismissed_reason, :brand)
 ON CONFLICT(item_key) DO UPDATE SET
     target = excluded.target, title = excluded.title, price_dkk = excluded.price_dkk,
-    url = excluded.url, last_seen = excluded.last_seen
+    url = excluded.url, last_seen = excluded.last_seen, brand = excluded.brand
     -- dismissed/dismissed_reason er BEVIDST udeladt her, se modulets docstring.
+    -- brand er IKKE følsom paa samme maade (rent afledt af titlen, ingen
+    -- manuel override-risiko) og maa derfor gerne genberegnes ved re-sync.
 """
 
 
 def make_item_key(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+
+
+def _detect_brand(title: str, config: dict) -> str | None:
+    """Ønske-mærke fundet i titlen, til UI-filtrering/prioritering (IKKE til
+    afvisning - se brugerens eksplicitte valg 2026-07-22: manglende mærke
+    skal IKKE auto-afvises, kun kunne filtreres til sin egen liste i UI'et).
+    Genbruger config.yaml:auto_dismiss_whitelist_keywords - samme liste som
+    allerede beskytter mønster-reglerne, nu også brugt positivt."""
+    title_lower = title.lower()
+    for brand in config.get("auto_dismiss_whitelist_keywords", []):
+        if brand.lower() in title_lower:
+            return brand
+    return None
 
 
 def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str | None]:
@@ -161,6 +177,7 @@ def run_source(
     store.executescript(LOCAL_SCHEMA)
     add_column_if_missing(store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
+    add_column_if_missing(store.connection, "listings", "brand", "TEXT")
     raw_count = 0
     changed = 0
 
@@ -181,6 +198,7 @@ def run_source(
             title = raw.get("title", "")
             target_name = raw.get("extra", {}).get("target", "?")
             dismissed, dismissed_reason = _auto_dismiss(title, target_name, config)
+            brand = _detect_brand(title, config)
 
             payload = {
                 "item_key": item_key,
@@ -192,6 +210,7 @@ def run_source(
                 "last_seen": now,
                 "dismissed": int(dismissed),
                 "dismissed_reason": dismissed_reason,
+                "brand": brand,
             }
 
             is_new_or_changed = store.upsert_if_changed(

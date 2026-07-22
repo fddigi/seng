@@ -26,5 +26,6 @@ CREATE TABLE IF NOT EXISTS listings (
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     dismissed INTEGER NOT NULL DEFAULT 0,
-    dismissed_reason TEXT
+    dismissed_reason TEXT,
+    brand TEXT
 );

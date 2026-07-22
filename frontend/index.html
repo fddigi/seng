@@ -24,6 +24,16 @@
 
   <div class="controls">
     <input type="text" id="filter-search" placeholder="Filtrér efter titel/mål..." />
+    <select id="brand-filter">
+      <option value="">Alle mærker</option>
+      <option value="__any__">Kun ønskemærker</option>
+    </select>
+    <label class="toggle">
+      Maks pris:
+      <input type="number" id="max-price-filter" value="800" min="0" step="50" style="width: 80px" />
+      kr
+      <button type="button" id="clear-price-filter" title="Fjern prisgrænse, vis alt">Vis alt</button>
+    </label>
     <label class="toggle">
       <input type="checkbox" id="show-stale-toggle" />
       Vis også ikke-aktive
@@ -39,6 +49,7 @@
     <thead>
       <tr>
         <th data-key="price_dkk" data-numeric="true"><button type="button">Pris<span class="sort-indicator"></span></button></th>
+        <th data-key="brand"><button type="button">Mærke<span class="sort-indicator"></span></button></th>
         <th data-key="target"><button type="button">Mål<span class="sort-indicator"></span></button></th>
         <th data-key="title"><button type="button">Titel<span class="sort-indicator"></span></button></th>
         <th data-key="first_seen"><button type="button">Først set<span class="sort-indicator"></span></button></th>
@@ -56,6 +67,12 @@
     let sortKey = "price_dkk", sortAsc = true;
     let showStale = false;
     let showDismissed = false;
+    let brandFilter = ""; // "" = alle, "__any__" = kun ønskemærker, ellers et konkret mærkenavn
+    // Standard-prisfilter (2026-07-22, brugerens eget valg): 2000 kr var for
+    // højt til at være nyttigt som default - INGEN data fjernes nogensinde,
+    // dette er kun et render-filter (samme princip som stale/dismissed
+    // ovenfor) man selv kan hæve/fjerne med "Vis alt".
+    let maxPriceFilter = 800;
 
     // En annonce der ikke er genberørt (last_seen) i mere end dette anses for
     // sandsynligvis solgt/nedtaget - samme begrundelse/grænse som PA SPEAKERS-
@@ -98,8 +115,26 @@
       }
       const { listings } = await res.json();
       allListings = listings;
+      renderBrandFilter();
       applySort();
       renderTable();
+    }
+
+    // Dynamisk populeret ud fra hvilke mærker der reelt findes i dataen -
+    // samme mønster som PA SPEAKERS-projektets kategori-filter.
+    function renderBrandFilter() {
+      const select = document.getElementById("brand-filter");
+      const previousValue = select.value;
+      const brands = [...new Set(allListings.map((r) => r.brand).filter(Boolean))].sort();
+      select.innerHTML = '<option value="">Alle mærker</option><option value="__any__">Kun ønskemærker</option>';
+      for (const brand of brands) {
+        const option = document.createElement("option");
+        option.value = brand;
+        option.textContent = brand.charAt(0).toUpperCase() + brand.slice(1);
+        select.appendChild(option);
+      }
+      select.value = [...brands, "", "__any__"].includes(previousValue) ? previousValue : "";
+      brandFilter = select.value;
     }
 
     async function setDismissed(itemKey, dismissed) {
@@ -154,6 +189,12 @@
       const filtered = allListings.filter((row) => {
         if (!showDismissed && isDismissed(row)) return false;
         if (!showStale && isStale(row)) return false;
+        if (brandFilter === "__any__" && !row.brand) return false;
+        if (brandFilter && brandFilter !== "__any__" && row.brand !== brandFilter) return false;
+        // Ukendt pris (null) skjules ALDRIG af prisgrænsen - vi kan ikke
+        // vurdere den mod grænsen, og at skjule den ville kunne skjule en
+        // reelt interessant annonce blot fordi prisen ikke kunne udlæses.
+        if (maxPriceFilter != null && row.price_dkk != null && row.price_dkk > maxPriceFilter) return false;
         if (!search) return true;
         const haystack = `${row.title ?? ""} ${row.target ?? ""}`.toLowerCase();
         return haystack.includes(search);
@@ -167,7 +208,7 @@
       if (filtered.length === 0) {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = 5;
+        td.colSpan = 6;
         td.className = "empty-state";
         td.textContent = allListings.length === 0 ? "Ingen annoncer endnu." : "Ingen annoncer matcher filteret.";
         tr.appendChild(td);
@@ -183,6 +224,10 @@
         const priceCell = document.createElement("td");
         priceCell.textContent = row.price_dkk != null ? `${Math.round(row.price_dkk)} kr` : "?";
         tr.appendChild(priceCell);
+
+        const brandCell = document.createElement("td");
+        brandCell.textContent = row.brand ? row.brand.charAt(0).toUpperCase() + row.brand.slice(1) : "-";
+        tr.appendChild(brandCell);
 
         const targetCell = document.createElement("td");
         targetCell.textContent = row.target ?? "";
@@ -236,6 +281,20 @@
 
     document.getElementById("filter-search").addEventListener("input", renderTable);
     document.getElementById("reload").addEventListener("click", loadListings);
+    document.getElementById("brand-filter").addEventListener("change", (event) => {
+      brandFilter = event.target.value;
+      renderTable();
+    });
+    document.getElementById("max-price-filter").addEventListener("input", (event) => {
+      const value = event.target.value.trim();
+      maxPriceFilter = value === "" ? null : Number(value);
+      renderTable();
+    });
+    document.getElementById("clear-price-filter").addEventListener("click", () => {
+      document.getElementById("max-price-filter").value = "";
+      maxPriceFilter = null;
+      renderTable();
+    });
     document.getElementById("show-stale-toggle").addEventListener("change", (event) => {
       showStale = event.target.checked;
       renderTable();
