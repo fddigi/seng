@@ -3,12 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scraper-dummy-example"
+name = "seng-scraper"
 version = "0.1.0"
-description = "Example scraper project built on scraper-core. Replace scraper/sources/jsonplaceholder.py with your own project-specific source."
+description = "Overvåger DBA.dk for brugte senge til kolonihaven (bred søgning, gemte filtre, manuel kuratering)."
 requires-python = ">=3.11"
 dependencies = [
     "scraper-core>=0.1.0",
+    "playwright>=1.44",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]

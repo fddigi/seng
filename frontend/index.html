@@ -2,25 +2,75 @@
 <html lang="da">
 <head>
   <meta charset="utf-8" />
-  <title>Data</title>
+  <title>Senge</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 20px auto; padding: 0 12px; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+    .toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #666; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    th button { background: none; border: none; font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
+    a.row-link { color: #0645ad; text-decoration: none; }
+    a.row-link:hover { text-decoration: underline; }
+    .empty-state { text-align: center; color: #888; padding: 20px; }
+    .dismiss-badge { font-size: 0.75em; color: #a33; margin-left: 6px; }
+    button.row-action { font-size: 0.8rem; padding: 2px 8px; cursor: pointer; }
+  </style>
 </head>
 <body>
-  <h1>Scraped data</h1>
+  <h1>Senge (kolonihave)</h1>
   <p>Logget ind som <span id="whoami">...</span> (<button id="logout">log ud</button>)</p>
-  <table id="posts-table" border="1" cellpadding="4">
+
+  <div class="controls">
+    <input type="text" id="filter-search" placeholder="Filtrér efter titel/mål..." />
+    <label class="toggle">
+      <input type="checkbox" id="show-stale-toggle" />
+      Vis også ikke-aktive
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="show-dismissed-toggle" />
+      Vis også afviste
+    </label>
+    <button id="reload">Genindlæs</button>
+  </div>
+
+  <table id="listings-table">
     <thead>
-      <tr><th>id</th><th>user_id</th><th>title</th><th>scraped_at</th></tr>
+      <tr>
+        <th data-key="price_dkk" data-numeric="true"><button type="button">Pris<span class="sort-indicator"></span></button></th>
+        <th data-key="target"><button type="button">Mål<span class="sort-indicator"></span></button></th>
+        <th data-key="title"><button type="button">Titel<span class="sort-indicator"></span></button></th>
+        <th data-key="first_seen"><button type="button">Først set<span class="sort-indicator"></span></button></th>
+        <th></th>
+      </tr>
     </thead>
     <tbody></tbody>
   </table>
+  <p id="count-line"></p>
   <p id="error" style="color: red"></p>
 
   <script src="config.js"></script>
   <script>
-    // Session lives as a bearer token in localStorage, NOT a cookie - see
-    // login.html's comment for why (Safari blocks third-party cookies outright).
-    // This page never touches a password or API key, only this one token.
+    let allListings = [];
+    let sortKey = "price_dkk", sortAsc = true;
+    let showStale = false;
+    let showDismissed = false;
+
+    // En annonce der ikke er genberørt (last_seen) i mere end dette anses for
+    // sandsynligvis solgt/nedtaget - samme begrundelse/grænse som PA SPEAKERS-
+    // projektets tilsvarende "skjul solgte"-funktion.
+    const STALE_HOURS = 48;
+
+    function isStale(row) {
+      if (!row.last_seen) return false;
+      return Date.now() - new Date(row.last_seen).getTime() > STALE_HOURS * 3600 * 1000;
+    }
+
+    function isDismissed(row) {
+      return !!row.dismissed;
+    }
+
     function authHeaders() {
       const token = localStorage.getItem("session_token");
       return token ? { Authorization: `Bearer ${token}` } : {};
@@ -40,25 +90,160 @@
       return res.json();
     }
 
-    async function loadPosts() {
-      const res = await fetch(`${API_BASE}/api/posts`, { headers: authHeaders() });
+    async function loadListings() {
+      const res = await fetch(`${API_BASE}/api/listings`, { headers: authHeaders() });
       if (!res.ok) {
         document.getElementById("error").textContent = "Kunne ikke hente data.";
         return;
       }
-      const { posts } = await res.json();
-      const tbody = document.querySelector("#posts-table tbody");
-      tbody.innerHTML = "";
-      for (const post of posts) {
-        const row = document.createElement("tr");
-        for (const value of [post.item_key, post.user_id, post.title, post.scraped_at]) {
-          const cell = document.createElement("td");
-          cell.textContent = value; // textContent, not innerHTML - avoids XSS from scraped content
-          row.appendChild(cell);
-        }
-        tbody.appendChild(row);
-      }
+      const { listings } = await res.json();
+      allListings = listings;
+      applySort();
+      renderTable();
     }
+
+    async function setDismissed(itemKey, dismissed) {
+      const path = dismissed ? "dismiss" : "undismiss";
+      const res = await fetch(`${API_BASE}/api/listings/${encodeURIComponent(itemKey)}/${path}`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke opdatere annoncen.";
+        return;
+      }
+      // Opdatér lokalt i stedet for at genindlæse hele listen - annoncen findes
+      // stadig i allListings (kun render-filteret ændrer sig), samme mønster
+      // som stale-hiding: data slettes aldrig, kun skjules/vises.
+      const row = allListings.find((r) => r.item_key === itemKey);
+      if (row) {
+        row.dismissed = dismissed ? 1 : 0;
+        row.dismissed_reason = dismissed ? "manual" : null;
+      }
+      renderTable();
+    }
+
+    function applySort() {
+      const th = document.querySelector(`#listings-table th[data-key="${sortKey}"]`);
+      const numeric = th?.dataset.numeric === "true";
+      allListings.sort((a, b) => {
+        const av = a[sortKey], bv = b[sortKey];
+        if (numeric) return sortAsc ? (av ?? 0) - (bv ?? 0) : (bv ?? 0) - (av ?? 0);
+        return sortAsc
+          ? String(av ?? "").localeCompare(String(bv ?? ""))
+          : String(bv ?? "").localeCompare(String(av ?? ""));
+      });
+      document.querySelectorAll("#listings-table th[data-key]").forEach((el) => {
+        const indicator = el.querySelector(".sort-indicator");
+        if (el.dataset.key === sortKey) {
+          indicator.textContent = sortAsc ? "▲" : "▼";
+        } else {
+          indicator.textContent = "";
+        }
+      });
+    }
+
+    function renderTable() {
+      const search = document.getElementById("filter-search").value.toLowerCase().trim();
+      const tbody = document.querySelector("#listings-table tbody");
+      tbody.innerHTML = "";
+
+      const staleHidden = showStale ? 0 : allListings.filter((r) => !isDismissed(r) && isStale(r)).length;
+      const dismissedHidden = showDismissed ? 0 : allListings.filter(isDismissed).length;
+
+      const filtered = allListings.filter((row) => {
+        if (!showDismissed && isDismissed(row)) return false;
+        if (!showStale && isStale(row)) return false;
+        if (!search) return true;
+        const haystack = `${row.title ?? ""} ${row.target ?? ""}`.toLowerCase();
+        return haystack.includes(search);
+      });
+
+      const suffixParts = [];
+      if (dismissedHidden > 0) suffixParts.push(`${dismissedHidden} afvist${dismissedHidden === 1 ? "" : "e"}`);
+      if (staleHidden > 0) suffixParts.push(`${staleHidden} sandsynligvis solgt${staleHidden === 1 ? "" : "e"}`);
+      const countSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(", ")} skjult)` : "";
+
+      if (filtered.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.className = "empty-state";
+        td.textContent = allListings.length === 0 ? "Ingen annoncer endnu." : "Ingen annoncer matcher filteret.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        document.getElementById("count-line").textContent =
+          `${filtered.length} af ${allListings.length} annoncer vist${countSuffix}`;
+        return;
+      }
+
+      for (const row of filtered) {
+        const tr = document.createElement("tr");
+
+        const priceCell = document.createElement("td");
+        priceCell.textContent = row.price_dkk != null ? `${Math.round(row.price_dkk)} kr` : "?";
+        tr.appendChild(priceCell);
+
+        const targetCell = document.createElement("td");
+        targetCell.textContent = row.target ?? "";
+        tr.appendChild(targetCell);
+
+        const titleCell = document.createElement("td");
+        const link = document.createElement("a");
+        link.className = "row-link";
+        link.href = row.url ?? "#";
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = row.title ?? "";
+        titleCell.appendChild(link);
+        if (isDismissed(row)) {
+          const badge = document.createElement("span");
+          badge.className = "dismiss-badge";
+          badge.textContent = row.dismissed_reason === "manual" ? "(afvist manuelt)" : `(${row.dismissed_reason ?? "afvist"})`;
+          titleCell.appendChild(badge);
+        }
+        tr.appendChild(titleCell);
+
+        const seenCell = document.createElement("td");
+        seenCell.textContent = (row.first_seen ?? "").slice(0, 16).replace("T", " ");
+        tr.appendChild(seenCell);
+
+        const actionCell = document.createElement("td");
+        const actionBtn = document.createElement("button");
+        actionBtn.type = "button";
+        actionBtn.className = "row-action";
+        actionBtn.textContent = isDismissed(row) ? "Genskab" : "Skjul";
+        actionBtn.addEventListener("click", () => setDismissed(row.item_key, !isDismissed(row)));
+        actionCell.appendChild(actionBtn);
+        tr.appendChild(actionCell);
+
+        tbody.appendChild(tr);
+      }
+
+      document.getElementById("count-line").textContent =
+        `${filtered.length} af ${allListings.length} annoncer vist${countSuffix}`;
+    }
+
+    document.querySelectorAll("#listings-table th[data-key]").forEach((th) => {
+      th.querySelector("button").addEventListener("click", () => {
+        const key = th.dataset.key;
+        sortAsc = sortKey === key ? !sortAsc : true;
+        sortKey = key;
+        applySort();
+        renderTable();
+      });
+    });
+
+    document.getElementById("filter-search").addEventListener("input", renderTable);
+    document.getElementById("reload").addEventListener("click", loadListings);
+    document.getElementById("show-stale-toggle").addEventListener("change", (event) => {
+      showStale = event.target.checked;
+      renderTable();
+    });
+    document.getElementById("show-dismissed-toggle").addEventListener("change", (event) => {
+      showDismissed = event.target.checked;
+      renderTable();
+    });
 
     document.getElementById("logout").addEventListener("click", async () => {
       await fetch(`${API_BASE}/logout`, { method: "POST", headers: authHeaders() }).catch(() => {});
@@ -70,7 +255,7 @@
       const me = await requireSession();
       if (!me) return;
       document.getElementById("whoami").textContent = me.username;
-      await loadPosts();
+      await loadListings();
     })();
   </script>
 </body>

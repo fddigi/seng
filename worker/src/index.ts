@@ -88,71 +88,47 @@ app.get("/api/me", requireAuth, (c) => {
   return c.json({ username: session.sub, role: session.role });
 });
 
-// --- Data endpoints against the dummy `posts` table (matches
-// scraper/scraper/sources/jsonplaceholder.py). Both reads and writes sit behind
-// requireAuth - there is no unauthenticated API surface beyond /login and /. ---
+// --- Data endpoints against the `listings` table (matches
+// scraper/scraper/pipeline.py). GET is read-only (the scraper writes via
+// scraper-core's delta-sync outbox); the dismiss/undismiss POSTs below are the
+// ONE deliberate write path outside that outbox - manual curation from the
+// frontend, never touched by the scraper (see pipeline.py's docstring on why
+// dismissed/dismissed_reason are excluded from its own ON CONFLICT clause).
+// No unauthenticated API surface beyond /login and /. ---
 
-app.get("/api/posts", requireAuth, async (c) => {
+app.get("/api/listings", requireAuth, async (c) => {
   const db = getDbClient(c.env);
-  const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
+  const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
   const result = await db.execute({
-    sql: "SELECT item_key, post_id, user_id, title, body, scraped_at FROM posts ORDER BY post_id LIMIT ?",
+    sql: "SELECT * FROM listings ORDER BY price_dkk ASC LIMIT ?",
     args: [limit],
   });
-  return c.json({ posts: result.rows });
+  return c.json({ listings: result.rows });
 });
 
-app.get("/api/posts/:itemKey", requireAuth, async (c) => {
-  const db = getDbClient(c.env);
+app.post("/api/listings/:itemKey/dismiss", requireAuth, async (c) => {
   const itemKey = c.req.param("itemKey");
   if (!itemKey) {
     return c.json({ error: "itemKey is required" }, 400);
   }
-  const result = await db.execute({
-    sql: "SELECT item_key, post_id, user_id, title, body, scraped_at FROM posts WHERE item_key = ?",
-    args: [itemKey],
-  });
-  if (result.rows.length === 0) {
-    return c.json({ error: "not found" }, 404);
-  }
-  return c.json({ post: result.rows[0] });
-});
-
-// Write endpoint - demonstrates the "writes behind auth" half of the pattern.
-// The scraper itself writes via scraper-core's delta-sync outbox, not this API;
-// this exists for e.g. a future admin panel doing manual corrections.
-app.post("/api/posts", requireAuth, async (c) => {
-  type PostBody = {
-    item_key?: string;
-    post_id?: number;
-    user_id?: number;
-    title?: string;
-    body?: string;
-  };
-  let body: PostBody;
-  try {
-    body = await c.req.json<PostBody>();
-  } catch {
-    body = {};
-  }
-
-  if (!body.item_key || !body.title) {
-    return c.json({ error: "item_key and title are required" }, 400);
-  }
-
   const db = getDbClient(c.env);
   await db.execute({
-    sql: `INSERT INTO posts (item_key, post_id, user_id, title, body, scraped_at)
-          VALUES (?, ?, ?, ?, ?, datetime('now'))
-          ON CONFLICT(item_key) DO UPDATE SET
-            post_id = excluded.post_id,
-            user_id = excluded.user_id,
-            title = excluded.title,
-            body = excluded.body,
-            scraped_at = excluded.scraped_at`,
-    args: [body.item_key, body.post_id ?? 0, body.user_id ?? 0, body.title, body.body ?? ""],
+    sql: "UPDATE listings SET dismissed = 1, dismissed_reason = 'manual' WHERE item_key = ?",
+    args: [itemKey],
   });
+  return c.json({ ok: true });
+});
 
+app.post("/api/listings/:itemKey/undismiss", requireAuth, async (c) => {
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  const db = getDbClient(c.env);
+  await db.execute({
+    sql: "UPDATE listings SET dismissed = 0, dismissed_reason = NULL WHERE item_key = ?",
+    args: [itemKey],
+  });
   return c.json({ ok: true });
 });
 

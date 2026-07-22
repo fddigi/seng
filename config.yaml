@@ -1,0 +1,49 @@
+# Konfiguration for seng-overvågning (kolonihave).
+#
+# Modsat PA SPEAKERS/studio-sub-projektet er der IKKE bygget nogen
+# model-genkendelse/klassifikation her - brugerens egen tilgang er "bred
+# søgning, efterfølgende manuel kuratering", fordi mærker ikke altid er
+# tagget korrekt på DBA. Hvert mål herunder ER en allerede-eksisterende,
+# gemt DBA-søgning (delt af brugeren) med sine egne filtre indbygget i
+# URL'en (kategori, bredde, pris, mærke-ID'er, lokation) - scraperen
+# gengiver dem 1:1 i stedet for at genopbygge filtrene fra bunden.
+#
+# Hver fundet annonce tagges med `target`-navnet, så frontend'en kan vise
+# hvilken gemt søgning der fandt den.
+targets:
+  - name: "Bred 175-185cm (par-bredde), <=1000 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1000&sort=PUBLISHED_DESC&sub_category=1.78.5197&width_cm_from=175&width_cm_to=185"
+  - name: "Latex 85-95cm"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&q=latex&sort=PRICE_ASC&sub_category=1.78.5197&width_cm_from=85&width_cm_to=95"
+  - name: "Premium-mærker (Carpe Diem/DUX/Hästens/Jensen), <=500 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?brand=2294&brand=2364&brand=2362&brand=2323&location=0.200001&price_to=500&product_category=2.78.5197.293"
+  - name: "DUX"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&product_category=2.78.5197.293&q=dux"
+  - name: "Auping, <=1500 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1500&q=auping&sub_category=1.78.5197"
+  - name: "Nærhed 85-95cm, <=1000 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?lat=55.710835&location=0.200001&lon=12.430368&price_to=1000&sort=PUBLISHED_DESC&sub_category=1.78.5197&width_cm_from=85&width_cm_to=95"
+  - name: "Dunlopillo 85-100cm, <=1000 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1000&q=Dunlopillo&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
+  - name: "Jensen 85-100cm"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&q=jensen&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
+  # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
+  # flag ville auto_dismiss_brands (nedenfor) fjerne ALLE dets resultater, siden
+  # de naturligvis alle indeholder "IKEA" i titlen.
+  - name: "Valevåg (IKEA)"
+    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
+    skip_auto_dismiss: true
+
+# Mærker der auto-afvises (lav kvalitet/ikke-interesse) ved indsættelse -
+# gælder IKKE mål med skip_auto_dismiss: true (se Valevåg ovenfor). Kun sat
+# ved FØRSTE indsættelse af en annonce, ændres aldrig ved senere gensyn -
+# se pipeline.py.
+auto_dismiss_brands:
+  - ikea
+  - jysk
+
+playwright:
+  headless: true
+  min_delay_s: 3
+  max_delay_s: 8
+  max_pages_per_target: 2

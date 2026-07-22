@@ -13,16 +13,18 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'admin'
 );
 
--- Dummy example data table, matches scraper/scraper/sources/jsonplaceholder.py
--- and worker/src/index.ts's /api/posts endpoints.
-CREATE TABLE IF NOT EXISTS posts (
+-- Bed listings, matches scraper/scraper/pipeline.py and worker/src/index.ts's
+-- /api/listings endpoint. Also created by the Python scraper itself on first
+-- run (CREATE TABLE IF NOT EXISTS) - kept here too so a fresh clone's Turso db
+-- has the right shape even before the scraper has run once.
+CREATE TABLE IF NOT EXISTS listings (
     item_key TEXT PRIMARY KEY,
-    post_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
+    target TEXT NOT NULL,
     title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    scraped_at TEXT NOT NULL
-    -- A future `owner_user_id INTEGER REFERENCES users(id)` column can be added
-    -- here later (per-row ownership / multi-tenancy) without changing the API
-    -- endpoints above - it would just be one more optional column.
+    price_dkk REAL,
+    url TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    dismissed_reason TEXT
 );
