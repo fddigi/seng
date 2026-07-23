@@ -54,15 +54,6 @@ _MADRAS_PATTERN = re.compile(_MADRAS_FRAGMENT, re.I)
 _WIDTH_PATTERN = re.compile(r"\b(\d{2,3})\s*[x×]\s*\d{2,3}\b", re.I)
 
 _LOOSE_PART_PATTERNS = [
-    # 2026-07-23: fjernet "^"-praefiks-kravet (Opus-kritik, runde 2) - "180
-    # sengegavl fra ellos"/"Blå sengegavl"/"Ellos sengegavl..." har maal/
-    # farve/mærke FORAN ordet og blev aldrig fanget af det gamle, striktere
-    # praefiks-krav. \b...\b matcher nu ordet uanset position i titlen.
-    # \w* TILFØJET samme dag (item/22141352 "Sengegavls paneler") - den
-    # AFSLUTTENDE \b krævede en ordgrænse LIGE efter "gavl", men det danske
-    # genitiv-s ("gavl-S paneler") klistrer direkte på uden grænse, samme
-    # problem som _SENG_PATTERN løste for det ledende \b.
-    (re.compile(r"\b(senge\s*gavl\w*|hovedgavl\w*|sengegærde\w*)\b", re.I), "løsdel (gavl)"),
     (
         re.compile(
             r"\b(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller"
@@ -110,6 +101,20 @@ _UNDESIRED_MATERIAL_PATTERN = re.compile(rf"\bskum{_MADRAS_FRAGMENT}\w*\b", re.I
 # blev afvist af topmadras-reglen, fordi _SENG_PATTERN aldrig genkendte
 # "enkeltmandsseng" som en seng.
 _SENG_PATTERN = re.compile(r"seng\w*\b", re.I)
+# "Sengegavl"/"hovedgavl"/"sengegærde" (løs gavl solgt alene) flyttet UD af
+# _LOOSE_PART_PATTERNS (whitelist-beskyttet) og gjort UBETINGET 2026-07-23
+# (item/22511887 "Sengegavl fra CARPE DIEM Solö", item/22719567 "Wonderland
+# ...sengegavl...") - en løs gavl er stadig ikke en seng, uanset mærke,
+# samme princip som topmadras/skummadras/lamelbund. Kan IKKE genbruge
+# _SENG_PATTERN som guard her, fordi "sengegavl" selv INDEHOLDER "seng" som
+# delstreng (ville altid selv-matche og aldrig kunne dismisses) - denne
+# guard ekskluderer derfor eksplicit "seng(e)" umiddelbart efterfulgt af et
+# af løsdels-ordene, saa en ægte "Dobbeltseng med sengegavl og ramme" stadig
+# korrekt IKKE rammes (bekræftet ved test af denne ændring).
+_GENUINE_BED_WORD_PATTERN = re.compile(
+    r"seng(?!e?\s*(?:gavl|gærde|stel|ramme|bund|lameller|meder))\w*\b", re.I
+)
+_LOOSE_GAVL_ALONE_PATTERN = re.compile(r"\b(senge\s*gavl\w*|hovedgavl\w*|sengegærde\w*)\b", re.I)
 
 TARGET_TABLE = "listings"
 
@@ -230,6 +235,12 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
          undslap fordi "wonderland" er et ønske-mærke.
        - Skummadras (samme "seng"-guard) - brugerens eksplicitte "skum-
          madrasser har ingen interesse" (item/23011729).
+       - Sengegavl/hovedgavl/sengegærde-ALENE, flyttet UD af den whitelist-
+         beskyttede gruppe nedenfor (item/22511887 "Sengegavl fra CARPE
+         DIEM", item/22719567 "Wonderland...sengegavl...") - en løs gavl er
+         stadig ikke en seng, uanset mærke. Bruger _GENUINE_BED_WORD_PATTERN
+         som guard i stedet for _SENG_PATTERN, fordi "sengegavl" selv
+         indeholder "seng" som delstreng.
        - Lamelbund/lamelrist-ALENE (samme "seng"-guard). Fundet 2026-07-23
          via item/21644515 ("Lamelbund") - en hel seng der blot MEDFØLGER
          en lamelbund ("Drømmeland elevationsseng med lamelbund") skal
@@ -285,6 +296,9 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
 
     if _UNDESIRED_MATERIAL_PATTERN.search(title) and not _SENG_PATTERN.search(title):
         return True, "auto:skummadras"
+
+    if _LOOSE_GAVL_ALONE_PATTERN.search(title) and not _GENUINE_BED_WORD_PATTERN.search(title):
+        return True, "auto:sengegavl-alene"
 
     if (
         _LOOSE_BASE_ALONE_PATTERN.search(title)

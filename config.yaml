@@ -11,37 +11,34 @@
 # Hver fundet annonce tagges med `target`-navnet, så frontend'en kan vise
 # hvilken gemt søgning der fandt den.
 #
-# RÆKKEFØLGE ER VIGTIG: mål med skip_auto_dismiss/force_dismiss_reason (Valevåg/
-# JYSK/IKEA) staar FØRST, FØR de brede/generiske maal. Grunden: dismissed/
-# dismissed_reason laases ved FØRSTE indsættelse af en URL og røres ALDRIG
-# igen ved senere gensyn (se pipeline.py's _INSERT_SQL) - ogsaa INDEN FOR
-# samme koersel. Hvis et generisk maal (fx "Nærhed 85-95cm") fandt en JYSK-
-# eller IKEA-annonce FØR det dedikerede mærke-ID-maal naaede den, blev den
-# forkerte "ikke afvist"-vurdering laast ind for altid, ogsaa naar JYSK/IKEA-
-# maalet bagefter (samme koersel) korrekt vurderede den til at skulle
-# afvises. Fundet 2026-07-23 via to konkrete eksempler (item/23186636
-# "Boksmadras" = IKEA, item/23050838 "Seng sælges" = JYSK - INGEN af
-# titlerne nævner mærket, kun DBA's egen mærke-facet gør).
+# RÆKKEFØLGE ER VIGTIG: dismissed/dismissed_reason laases ved FØRSTE
+# indsættelse af en URL og røres ALDRIG igen ved senere gensyn (se
+# pipeline.py's _INSERT_SQL) - ogsaa INDEN FOR samme koersel, hvis samme
+# URL findes via FLERE maal. Det betyder: den SIDSTE klassifikation en
+# raekke faar inden for én koersel er den der reelt tæller for target-
+# feltet, men KUN den FØRSTE nogensinde-computed dismissed/dismissed_reason
+# overlever (senere resyncs rører den aldrig). Praktisk regel: placér
+# "undtagelses"-maal (skip_auto_dismiss) EFTER "afvis altid"-maal
+# (force_dismiss_reason), og begge FØR de brede/generiske maal - saa en
+# undtagelse altid faar "sidste ord" for en URL der ogsaa matcher et
+# blankt afvis-maal, og et blankt afvis-maal altid faar sidste ord over
+# et generisk maals default-klassifikation.
+#
+# JYSK/IKEA (force_dismiss_reason) FØRST: uden dette laa den forkerte
+# "ikke afvist"-vurdering fra et generisk maal (fx "Nærhed 85-95cm") laast
+# ind for altid. Fundet 2026-07-23 via item/23186636 ("Boksmadras" = IKEA)
+# og item/23050838 ("Seng sælges" = JYSK) - INGEN af titlerne nævner
+# mærket, kun DBA's egen mærke-facet gør.
+#
+# Valevåg (skip_auto_dismiss) SIDST (efter ALT andet, ogsaa de generiske
+# maal): en Valevåg-model indeholder naturligvis "IKEA" i titlen og ville
+# ellers blive fanget af auto_dismiss_brands ELLER det blanke IKEA-maal,
+# hvis den maatte findes via et andet maal FØR Valevåg naaede den samme
+# koersel. Fundet 2026-07-23 via item/1e32d64b... ("IKEA madras Valevåg")
+# der gentagne gange "hoppede" mellem korrekt (Valevåg, ikke afvist) og
+# forkert (IKEA-maalet, force-afvist) alt efter tilfældig koersel-raekkefølge,
+# indtil Valevåg blev placeret allersidst.
 targets:
-  # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
-  # flag ville auto_dismiss_brands (nedenfor) fjerne ALLE dets resultater, siden
-  # de naturligvis alle indeholder "IKEA" i titlen.
-  # 2026-07-23: brugeren er "kun interesseret i 85-95 cm" (item/23274798,
-  # "VALEVÅG...140x200 cm"). FORSØGTE først DBA's eget width_cm_from/to-filter
-  # (som de fleste andre maal bruger) - men det filter ekskluderer STILTIENDE
-  # alle annoncer UDEN struktureret bredde-metadata hos DBA, ikke kun de reelt
-  # forkerte bredder. Konsekvens fundet ved test: en Valevåg-annonce UDEN
-  # bredde i titlen ("IKEA madras Valevåg") forsvandt helt fra DETTE maals
-  # resultater og blev i stedet KUN fundet via det brede "IKEA (mærke-ID,
-  # altid afvist)"-maal - og blev dermed forkert tvangs-afvist som "bare
-  # IKEA-skrammel", selvom den kunne være præcis den rigtige bredde. Derfor
-  # INGEN width-filter i selve URL'en her - desired_width_cm nedenfor gør
-  # det samme job i selve klassifikationslogikken (pipeline.py), men KUN når
-  # bredden reelt STÅR i titlen, ellers lades annoncen urørt til manuel vurdering.
-  - name: "Valevåg (IKEA)"
-    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
-    skip_auto_dismiss: true
-    desired_width_cm: [85, 95]
   # 2026-07-22: titel-tekst-match ("jysk" i auto_dismiss_brands) fanger IKKE
   # annoncer hvor sælgeren aldrig skriver mærket i titlen, kun DBA's egen
   # strukturerede mærke-tag (fundet: https://www.dba.dk/recommerce/forsale/
@@ -87,6 +84,22 @@ targets:
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1000&q=Dunlopillo&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
   - name: "Jensen 85-100cm"
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&q=jensen&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
+  # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
+  # flag ville auto_dismiss_brands (ovenfor) fjerne ALLE dets resultater, siden
+  # de naturligvis alle indeholder "IKEA" i titlen. Placeret SIDST - se
+  # rækkefølge-forklaringen øverst i filen.
+  # 2026-07-23: brugeren er "kun interesseret i 85-95 cm" (item/23274798,
+  # "VALEVÅG...140x200 cm"). FORSØGTE først DBA's eget width_cm_from/to-filter
+  # (som de fleste andre maal bruger) - men det filter ekskluderer STILTIENDE
+  # alle annoncer UDEN struktureret bredde-metadata hos DBA, ikke kun de reelt
+  # forkerte bredder. Derfor INGEN width-filter i selve URL'en her -
+  # desired_width_cm nedenfor gør det samme job i selve klassifikations-
+  # logikken (pipeline.py), men KUN når bredden reelt STÅR i titlen, ellers
+  # lades annoncen urørt til manuel vurdering.
+  - name: "Valevåg (IKEA)"
+    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
+    skip_auto_dismiss: true
+    desired_width_cm: [85, 95]
 
 # Mærker der auto-afvises (lav kvalitet/ikke-interesse) ved indsættelse -
 # gælder IKKE mål med skip_auto_dismiss: true (se Valevåg ovenfor). Kun sat
