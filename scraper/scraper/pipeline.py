@@ -44,7 +44,11 @@ _LOOSE_PART_PATTERNS = [
     # sengegavl fra ellos"/"Blå sengegavl"/"Ellos sengegavl..." har maal/
     # farve/mærke FORAN ordet og blev aldrig fanget af det gamle, striktere
     # praefiks-krav. \b...\b matcher nu ordet uanset position i titlen.
-    (re.compile(r"\b(senge\s*gavl|hovedgavl|sengegærde)\b", re.I), "løsdel (gavl)"),
+    # \w* TILFØJET samme dag (item/22141352 "Sengegavls paneler") - den
+    # AFSLUTTENDE \b krævede en ordgrænse LIGE efter "gavl", men det danske
+    # genitiv-s ("gavl-S paneler") klistrer direkte på uden grænse, samme
+    # problem som _SENG_PATTERN løste for det ledende \b.
+    (re.compile(r"\b(senge\s*gavl\w*|hovedgavl\w*|sengegærde\w*)\b", re.I), "løsdel (gavl)"),
     (
         re.compile(
             r"\b(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller"
@@ -77,6 +81,12 @@ _TOPMADRAS_ALONE_PATTERN = re.compile(r"\b(top\s*madras|rullemadras)\b", re.I)
 # rammes (fundet ved test af denne ændring - _SENG_PATTERN-guarden er
 # derfor et krav, ikke en efterfølgende finpudsning).
 _LOOSE_BASE_ALONE_PATTERN = re.compile(r"\b(lamelbund|lamelrist)\b", re.I)
+# "Skummadras" (billig skum-/skumgummimadras) tilføjet 2026-07-23 - brugerens
+# eksplicitte "skummadrasser har ingen interesse" (item/23011729 "To
+# skummadrasser for en madras' pris"). Samme UBETINGET-men-seng-guardet
+# struktur som topmadras/lamelbund ovenfor: en uønsket madras-TYPE, ikke et
+# mærke-spørgsmål.
+_UNDESIRED_MATERIAL_PATTERN = re.compile(r"\bskummadras\w*\b", re.I)
 # INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
 # adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
 # foran ville aldrig kunne matche disse (ingen ord-graense mellem "ts" og
@@ -101,10 +111,21 @@ CREATE TABLE IF NOT EXISTS listings (
     brand TEXT,
     brand_manual INTEGER NOT NULL DEFAULT 0,
     image_url TEXT,
-    pinned INTEGER NOT NULL DEFAULT 0
+    pinned INTEGER NOT NULL DEFAULT 0,
+    misses INTEGER NOT NULL DEFAULT 0
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
+
+# 2026-07-23: supplement til last_seen-baseret "formodet solgt" (48t) - en
+# annonce der er VÆK fra STALE_MISS_THRESHOLD scrapes i træk af samme mål er
+# et stærkere/hurtigere signal end blot "under 48t gammel", især fordi
+# scrape-kadencen er uregelmæssig (nogle gange under 1t mellem koersler,
+# andre gange 6+). Kun talt for maal der reelt returnerede MINDST ét resultat
+# denne koersel (found_keys_by_target nedenfor) - et maal der gav 0 resultater
+# kan lige saa godt vaere ramt af en bot-wall som vaere reelt tomt, og vi vil
+# hellere IKKE taelle en forgaeves-runde end at taelle en falsk positiv.
+STALE_MISS_THRESHOLD = 3
 
 _INSERT_SQL = """
 INSERT INTO listings (item_key, target, title, price_dkk, url, first_seen, last_seen,
@@ -134,9 +155,12 @@ ON CONFLICT(item_key) DO UPDATE SET
 # denne køsels friske værdier, og brand med den evt. tomme auto-genkendte
 # værdi selv efter en manuel rettelse (brand_manual = 1). Matcher PRÆCIS den
 # beskyttelse `_INSERT_SQL` ovenfor allerede giver den lokale sqlite-skrivning.
+# ":brand" (IKKE "excluded.brand") - sync_pending() bygger en almindelig
+# UPDATE for 'update'-operationer (se dens docstring for hvorfor), der findes
+# ingen "excluded"-pseudotabel i den kontekst.
 SYNC_PROTECTED_COLUMNS = {"first_seen", "dismissed", "dismissed_reason"}
 SYNC_CONDITIONAL_COLUMNS = {
-    "brand": "CASE WHEN brand_manual = 1 THEN brand ELSE excluded.brand END"
+    "brand": "CASE WHEN brand_manual = 1 THEN brand ELSE :brand END"
 }
 
 
@@ -177,6 +201,8 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
        - Topmadras-ALENE (kun hvis "seng" ikke også nævnes). Fundet
          2026-07-23 via "Wonderland top madras" (item/23104939), der
          undslap fordi "wonderland" er et ønske-mærke.
+       - Skummadras (samme "seng"-guard) - brugerens eksplicitte "skum-
+         madrasser har ingen interesse" (item/23011729).
        - Lamelbund/lamelrist-ALENE (samme "seng"-guard). Fundet 2026-07-23
          via item/21644515 ("Lamelbund") - en hel seng der blot MEDFØLGER
          en lamelbund ("Drømmeland elevationsseng med lamelbund") skal
@@ -212,6 +238,9 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
 
     if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
         return True, "auto:topmadras-alene"
+
+    if _UNDESIRED_MATERIAL_PATTERN.search(title) and not _SENG_PATTERN.search(title):
+        return True, "auto:skummadras"
 
     if (
         _LOOSE_BASE_ALONE_PATTERN.search(title)
@@ -261,6 +290,7 @@ def run_source(
     )
     add_column_if_missing(store.connection, "listings", "image_url", "TEXT")
     add_column_if_missing(store.connection, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(store.connection, "listings", "misses", "INTEGER NOT NULL DEFAULT 0")
     raw_count = 0
     changed = 0
 
@@ -272,6 +302,10 @@ def run_source(
         )
         raw_count = len(raw_listings)
         now = datetime.datetime.now(datetime.UTC).isoformat()
+        # Til den efterfoelgende "N forgaeves scrapes i traek"-taelling
+        # (STALE_MISS_THRESHOLD) - se den loekke laengere nede for hvorfor kun
+        # maal der REELT gav mindst ét resultat her taeller med.
+        found_keys_by_target: dict[str, set[str]] = {}
 
         for raw in raw_listings:
             url = raw.get("url", "")
@@ -280,6 +314,7 @@ def run_source(
             item_key = make_item_key(url)
             title = raw.get("title", "")
             target_name = raw.get("extra", {}).get("target", "?")
+            found_keys_by_target.setdefault(target_name, set()).add(item_key)
             dismissed, dismissed_reason = _auto_dismiss(title, target_name, config)
             brand = _detect_brand(title, config)
 
@@ -336,6 +371,41 @@ def run_source(
             store.connection.execute(_INSERT_SQL, payload)
             store.connection.commit()
             changed += 1
+
+        # "N forgaeves scrapes i traek" - kun for maal der REELT gav mindst ét
+        # resultat denne koersel (found_keys_by_target's noegler). Et maal med
+        # 0 resultater kan lige saa godt vaere en bot-wall som en reelt tom
+        # soegning, og en forgaeves-taelling her ville kunne give falske
+        # positiver for HELE maalets bestand paa én gang - se STALE_MISS_
+        # THRESHOLD's kommentar.
+        for target_name, found_keys in found_keys_by_target.items():
+            if not found_keys:
+                continue
+            rows = store.connection.execute(
+                "SELECT item_key, misses FROM listings WHERE target = ? AND dismissed = 0",
+                (target_name,),
+            ).fetchall()
+            for row in rows:
+                row_item_key = row["item_key"]
+                if row_item_key in found_keys:
+                    if row["misses"] != 0:
+                        store.connection.execute(
+                            "UPDATE listings SET misses = 0 WHERE item_key = ?",
+                            (row_item_key,),
+                        )
+                        store.enqueue_update(TARGET_TABLE, {
+                            "item_key": row_item_key, "misses": 0,
+                        })
+                else:
+                    new_misses = row["misses"] + 1
+                    store.connection.execute(
+                        "UPDATE listings SET misses = ? WHERE item_key = ?",
+                        (new_misses, row_item_key),
+                    )
+                    store.enqueue_update(TARGET_TABLE, {
+                        "item_key": row_item_key, "misses": new_misses,
+                    })
+            store.connection.commit()
 
         logger.info("%s: %d raw, %d new/changed", source_name, raw_count, changed)
     except SourceTimeoutError:

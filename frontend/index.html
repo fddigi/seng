@@ -188,7 +188,15 @@
     // projektets tilsvarende "skjul solgte"-funktion.
     const STALE_HOURS = 48;
 
+    // Supplement 2026-07-23: "misses" (scraper/pipeline.py) tæller forgæves
+    // scrapes i træk af samme mål - mere robust end en ren tidsgrænse, da
+    // scrape-kadencen er uregelmæssig (nogle gange <1t mellem kørsler, andre
+    // gange 6+). En annonce der er væk fra 3 scrapes i træk er formodet
+    // solgt/fjernet, uanset hvor lang tid der reelt er gået.
+    const STALE_MISS_THRESHOLD = 3;
+
     function isStale(row) {
+      if ((row.misses ?? 0) >= STALE_MISS_THRESHOLD) return true;
       if (!row.last_seen) return false;
       return Date.now() - new Date(row.last_seen).getTime() > STALE_HOURS * 3600 * 1000;
     }

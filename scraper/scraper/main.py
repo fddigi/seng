@@ -57,6 +57,9 @@ def run() -> int:
                     add_column_if_missing(
                         turso, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0"
                     )
+                    add_column_if_missing(
+                        turso, "listings", "misses", "INTEGER NOT NULL DEFAULT 0"
+                    )
                     synced = sync_pending(
                         store,
                         turso,
