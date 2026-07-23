@@ -223,7 +223,9 @@ def run_source(
     add_column_if_missing(store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
     add_column_if_missing(store.connection, "listings", "brand", "TEXT")
-    add_column_if_missing(store.connection, "listings", "brand_manual", "INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(
+        store.connection, "listings", "brand_manual", "INTEGER NOT NULL DEFAULT 0"
+    )
     add_column_if_missing(store.connection, "listings", "image_url", "TEXT")
     add_column_if_missing(store.connection, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0")
     raw_count = 0
