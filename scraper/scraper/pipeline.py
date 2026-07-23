@@ -39,6 +39,20 @@ logger = logging.getLogger(__name__)
 # konservative, så de kun rammer annoncer der reelt KUN er løsdelen, ikke en
 # hel seng der blot NÆVNER delen (fx "Dobbeltseng inkl. madrasser og
 # topmadras" skal IKKE ramt af løsdele- eller topmadras-reglen).
+# 2026-07-23: "madress" (dobbelt-s, engelsk-paavirket stavefejl af "madras")
+# fundet i item/23212140 ("Topmadress 90x200") - ingen af madras-mønstrene
+# nedenfor genkendte den. Delt fragment genbruges alle steder ordet indgaar,
+# saa fremtidige tilfoejelser ikke glemmer stavevarianten.
+_MADRAS_FRAGMENT = r"madr(?:as|ess)"
+_MADRAS_PATTERN = re.compile(_MADRAS_FRAGMENT, re.I)
+
+# Udtrækker "bredde" fra det danske møbel-konventions-format "BREDDExLÆNGDE"
+# (fx "140x200", "90×200cm") - kun brugt af target_cfg's desired_width_cm
+# (se _auto_dismiss). Matcher IKKE en enkeltstående firecifret dimension
+# ("1210") pga. \d{2,3}-grænsen, og kræver "x"/"×" mellem de to tal for at
+# undgå falske positiver fra tilfældige tal-par i en titel.
+_WIDTH_PATTERN = re.compile(r"\b(\d{2,3})\s*[x×]\s*\d{2,3}\b", re.I)
+
 _LOOSE_PART_PATTERNS = [
     # 2026-07-23: fjernet "^"-praefiks-kravet (Opus-kritik, runde 2) - "180
     # sengegavl fra ellos"/"Blå sengegavl"/"Ellos sengegavl..." har maal/
@@ -57,7 +71,7 @@ _LOOSE_PART_PATTERNS = [
         ),
         "løsdel (stel/ramme/lameller/meder)",
     ),
-    (re.compile(r"(madras\s*)?betræk", re.I), "løsdel (betræk)"),
+    (re.compile(rf"({_MADRAS_FRAGMENT}\s*)?betræk", re.I), "løsdel (betræk)"),
 ]
 _LAGEN_PATTERN = re.compile(r"\blagen\b", re.I)
 _SEEKING_PATTERN = re.compile(r"^søger\b", re.I)
@@ -70,7 +84,9 @@ _WRONG_TYPE_PATTERN = re.compile(r"\b(junior\s*seng|børneseng|hunde\s*seng|dog\
 # "Rullemadras" (billig rulle-/campingmadras) tilføjet 2026-07-23 - samme
 # kategori som løs topmadras: en billig, enkeltstående madras-type, ikke det
 # brugeren efterspørger, medmindre den saelges som del af en hel seng.
-_TOPMADRAS_ALONE_PATTERN = re.compile(r"\b(top\s*madras|rullemadras)\b", re.I)
+_TOPMADRAS_ALONE_PATTERN = re.compile(
+    rf"\b(top\s*{_MADRAS_FRAGMENT}|rulle{_MADRAS_FRAGMENT})\b", re.I
+)
 # "Lamelbund"/"lamelrist" (løs lamelbund/-rist solgt alene) tilføjet
 # 2026-07-23 (item/21644515, titel udelukkende "Lamelbund") - matchede INTET
 # eksisterende mønster ("senge bund" kræver "senge"-præfiks, "lameller"
@@ -86,7 +102,7 @@ _LOOSE_BASE_ALONE_PATTERN = re.compile(r"\b(lamelbund|lamelrist)\b", re.I)
 # skummadrasser for en madras' pris"). Samme UBETINGET-men-seng-guardet
 # struktur som topmadras/lamelbund ovenfor: en uønsket madras-TYPE, ikke et
 # mærke-spørgsmål.
-_UNDESIRED_MATERIAL_PATTERN = re.compile(r"\bskummadras\w*\b", re.I)
+_UNDESIRED_MATERIAL_PATTERN = re.compile(rf"\bskum{_MADRAS_FRAGMENT}\w*\b", re.I)
 # INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
 # adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
 # foran ville aldrig kunne matche disse (ingen ord-graense mellem "ts" og
@@ -189,6 +205,17 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
        fordi sælgere ikke altid skriver mærket i titlen (se targetets
        kommentar i config.yaml for et konkret eksempel). Alt herfra afvises
        ubetinget, FØR noget som helst andet tjekkes.
+    0'. desired_width_cm (config.yaml, fx Valevåg) - tjekkes FØR skip_auto_
+        dismiss (punkt 1), IKKE beskyttet af det: et mål kan slippe for
+        mærke-baseret filtrering og STADIG have en ønsket bredde. Dismisser
+        KUN hvis titlen faktisk angiver en bredde ("140x200") uden for
+        intervallet - ingen bredde i titlen betyder "kan ikke afgøres",
+        annoncen forbliver synlig. Fundet 2026-07-23: et forsøg på at løse
+        dette via DBA's EGET width_cm_from/to-filter i URL'en ekskluderede
+        stiltiende alle annoncer UDEN struktureret bredde-metadata, ikke kun
+        de reelt forkerte - en Valevåg-annonce uden bredde i titlen forsvandt
+        fra Valevåg-målet og faldt i stedet ned i IKEA-mærke-ID-målets
+        ubetingede afvisning. Titel-baseret tjek har ikke dette problem.
     1. skip_auto_dismiss (config.yaml: "Valevåg (IKEA)", som bevidst SØGER
        efter en IKEA-model) - undtager målet fra ALT nedenfor, ubetinget.
     2. auto_dismiss_brands (IKEA/JYSK titel-tekst-match) - ubetinget, IKKE
@@ -220,6 +247,23 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
     target_cfg = targets_by_name.get(target_name, {})
     if target_cfg.get("force_dismiss_reason"):
         return True, target_cfg["force_dismiss_reason"]
+
+    # desired_width_cm (config.yaml, fx Valevåg): tjekkes FØR skip_auto_dismiss
+    # returnerer, bevidst - et mål kan søge bredt uden mærke-baseret filtrering
+    # (Valevåg søger uden DBA-breddefilter, se dens kommentar i config.yaml)
+    # men STADIG ville ekskludere en tydeligt forkert bredde. Kun UBETINGET
+    # dismiss hvis titlen FAKTISK angiver en bredde (fx "140x200") der ligger
+    # udenfor - INGEN bredde i titlen betyder "kan ikke afgøres", annoncen
+    # forbliver synlig til manuel vurdering (samme "bred søgning + manuel
+    # kuratering"-princip som resten af projektet).
+    desired_width = target_cfg.get("desired_width_cm")
+    if desired_width:
+        width_match = _WIDTH_PATTERN.search(title)
+        if width_match:
+            width = int(width_match.group(1))
+            if not (desired_width[0] <= width <= desired_width[1]):
+                return True, "auto:bredde-uden-for-ønsket-interval"
+
     if target_cfg.get("skip_auto_dismiss"):
         return False, None
 
@@ -245,7 +289,7 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
     if (
         _LOOSE_BASE_ALONE_PATTERN.search(title)
         and not _SENG_PATTERN.search(title)
-        and "madras" not in title_lower
+        and not _MADRAS_PATTERN.search(title)
     ):
         return True, "auto:lamelbund-alene"
 
@@ -255,7 +299,7 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
     whitelist = config.get("auto_dismiss_whitelist_keywords", [])
     if any(w.lower() in title_lower for w in whitelist):
         return False, None
-    if _SENG_PATTERN.search(title) and "madras" in title_lower:
+    if _SENG_PATTERN.search(title) and _MADRAS_PATTERN.search(title):
         return False, None
 
     for pattern, reason in _LOOSE_PART_PATTERNS:

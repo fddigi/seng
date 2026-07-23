@@ -26,14 +26,22 @@ targets:
   # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
   # flag ville auto_dismiss_brands (nedenfor) fjerne ALLE dets resultater, siden
   # de naturligvis alle indeholder "IKEA" i titlen.
-  # 2026-07-23: width_cm_from/to=85-95 tilføjet - brugeren er "kun interesseret
-  # i 85-95 cm", men maalet havde INGEN breddefilter (i modsætning til de
-  # fleste andre maal), saa alle Valevåg-bredder (140/160/180cm mv.) kom med.
-  # Fundet via item/23274798 ("VALEVÅG...140x200 cm"). Bekræftet at DBA's
-  # breddefilter faktisk virker paa denne soegning (18 -> 0 resultater lige nu).
+  # 2026-07-23: brugeren er "kun interesseret i 85-95 cm" (item/23274798,
+  # "VALEVÅG...140x200 cm"). FORSØGTE først DBA's eget width_cm_from/to-filter
+  # (som de fleste andre maal bruger) - men det filter ekskluderer STILTIENDE
+  # alle annoncer UDEN struktureret bredde-metadata hos DBA, ikke kun de reelt
+  # forkerte bredder. Konsekvens fundet ved test: en Valevåg-annonce UDEN
+  # bredde i titlen ("IKEA madras Valevåg") forsvandt helt fra DETTE maals
+  # resultater og blev i stedet KUN fundet via det brede "IKEA (mærke-ID,
+  # altid afvist)"-maal - og blev dermed forkert tvangs-afvist som "bare
+  # IKEA-skrammel", selvom den kunne være præcis den rigtige bredde. Derfor
+  # INGEN width-filter i selve URL'en her - desired_width_cm nedenfor gør
+  # det samme job i selve klassifikationslogikken (pipeline.py), men KUN når
+  # bredden reelt STÅR i titlen, ellers lades annoncen urørt til manuel vurdering.
   - name: "Valevåg (IKEA)"
-    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197&width_cm_from=85&width_cm_to=95"
+    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
     skip_auto_dismiss: true
+    desired_width_cm: [85, 95]
   # 2026-07-22: titel-tekst-match ("jysk" i auto_dismiss_brands) fanger IKKE
   # annoncer hvor sælgeren aldrig skriver mærket i titlen, kun DBA's egen
   # strukturerede mærke-tag (fundet: https://www.dba.dk/recommerce/forsale/
