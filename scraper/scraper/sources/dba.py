@@ -40,7 +40,13 @@ def _parse_price(price_text: str):
 def _parse_listing_cards(page):
     """Selectors som PA SPEAKERS' dba.py: annonce-kort er <article class="...
     sf-search-ad ...">, titel i <h2>, link i <a class="sf-search-ad-link">
-    (allerede absolut URL), pris i en <div class="... font-bold ..."> som "4.600 kr"."""
+    (allerede absolut URL), pris i en <div class="... font-bold ..."> som "4.600 kr".
+
+    2026-07-23: billed-thumbnail tilføjet - DBA's kort har en almindelig
+    <img src="https://images.dbastatic.dk/..."> uden lazy-loading/srcset-
+    besvær (bekræftet ved research), så et simpelt query_selector("img")
+    + src-attribut er nok. Nogle annoncer har slet intet billede - image_url
+    bliver da None, håndteret i frontend'en (viser en pladsholder)."""
     cards = page.query_selector_all("article.sf-search-ad")
     results = []
     for card in cards:
@@ -53,7 +59,11 @@ def _parse_listing_cards(page):
             price_el = card.query_selector(".font-bold")
             price_text = price_el.inner_text() if price_el else card.inner_text()
             url = link_el.get_attribute("href")
-            results.append({"title": title, "price_text": price_text, "url": url})
+            img_el = card.query_selector("img")
+            image_url = img_el.get_attribute("src") if img_el else None
+            results.append({
+                "title": title, "price_text": price_text, "url": url, "image_url": image_url,
+            })
         except Exception:
             logger.exception("DBA: kunne ikke parse et annonce-kort, springer over")
     return results
@@ -131,6 +141,7 @@ def fetch(config: dict, dry_run: bool = False) -> list[dict]:
                                 "price_amount": amount,
                                 "price_currency": currency,
                                 "url": card["url"],
+                                "image_url": card["image_url"],
                                 "extra": {"target": target_name, "source_page": url},
                             })
 

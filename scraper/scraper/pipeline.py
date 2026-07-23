@@ -40,10 +40,14 @@ logger = logging.getLogger(__name__)
 # hel seng der blot NÆVNER delen (fx "Dobbeltseng inkl. madrasser og
 # topmadras" skal IKKE ramt af løsdele- eller topmadras-reglen).
 _LOOSE_PART_PATTERNS = [
-    (re.compile(r"^(senge\s*gavl|hovedgavl|sengegærde)\b", re.I), "løsdel (gavl)"),
+    # 2026-07-23: fjernet "^"-praefiks-kravet (Opus-kritik, runde 2) - "180
+    # sengegavl fra ellos"/"Blå sengegavl"/"Ellos sengegavl..." har maal/
+    # farve/mærke FORAN ordet og blev aldrig fanget af det gamle, striktere
+    # praefiks-krav. \b...\b matcher nu ordet uanset position i titlen.
+    (re.compile(r"\b(senge\s*gavl|hovedgavl|sengegærde)\b", re.I), "løsdel (gavl)"),
     (
         re.compile(
-            r"^(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller)\b",
+            r"\b(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller)\b",
             re.I,
         ),
         "løsdel (stel/ramme/lameller)",
@@ -52,6 +56,12 @@ _LOOSE_PART_PATTERNS = [
 ]
 _LAGEN_PATTERN = re.compile(r"\blagen\b", re.I)
 _SEEKING_PATTERN = re.compile(r"^søger\b", re.I)
+# 2026-07-23 (Opus-kritik runde 2 + konkret hændelse: samme "Ilva juniorseng"-
+# titel dukkede op igen under et NYT DBA-id, fordi kun ÉN tidligere annonce
+# var afvist manuelt - aldrig som en regel). Ubetinget som størrelses-tjekket:
+# en juniorseng/hundeseng er forkert PRODUKTTYPE, ikke et støj-mønster et
+# ønske-mærke burde kunne "redde" - selv en Jensen-juniorseng er forkert.
+_WRONG_TYPE_PATTERN = re.compile(r"\b(junior\s*seng|børneseng|hunde\s*seng|dog\s*bed)\b", re.I)
 _TOPMADRAS_ALONE_PATTERN = re.compile(r"\btop\s*madras\b", re.I)
 # INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
 # adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
@@ -74,22 +84,25 @@ CREATE TABLE IF NOT EXISTS listings (
     last_seen TEXT NOT NULL,
     dismissed INTEGER NOT NULL DEFAULT 0,
     dismissed_reason TEXT,
-    brand TEXT
+    brand TEXT,
+    image_url TEXT
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
 
 _INSERT_SQL = """
 INSERT INTO listings (item_key, target, title, price_dkk, url, first_seen, last_seen,
-    dismissed, dismissed_reason, brand)
+    dismissed, dismissed_reason, brand, image_url)
 VALUES (:item_key, :target, :title, :price_dkk, :url, :first_seen, :last_seen,
-    :dismissed, :dismissed_reason, :brand)
+    :dismissed, :dismissed_reason, :brand, :image_url)
 ON CONFLICT(item_key) DO UPDATE SET
     target = excluded.target, title = excluded.title, price_dkk = excluded.price_dkk,
-    url = excluded.url, last_seen = excluded.last_seen, brand = excluded.brand
+    url = excluded.url, last_seen = excluded.last_seen, brand = excluded.brand,
+    image_url = excluded.image_url
     -- dismissed/dismissed_reason er BEVIDST udeladt her, se modulets docstring.
-    -- brand er IKKE følsom paa samme maade (rent afledt af titlen, ingen
-    -- manuel override-risiko) og maa derfor gerne genberegnes ved re-sync.
+    -- brand/image_url er IKKE følsomme paa samme maade (rent afledt af
+    -- titlen/DBA-kortet, ingen manuel override-risiko) og maa derfor gerne
+    -- genberegnes/opdateres ved re-sync.
 """
 
 
@@ -124,14 +137,16 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
        beskyttet af whitelisten i punkt 3 (mærke-kvalitet er en anden akse
        end løsdel-mønstrene, og de to bør aldrig kunne modsige hinanden i
        samme titel).
-    3'. Topmadras-ALENE (kun hvis "seng" ikke også nævnes) - ligesom
-       størrelse-tjekket er dette IKKE beskyttet af whitelisten: en løs
-       topper er stadig kun en løs topper, uanset om den er fra et
-       ønske-mærke. Fundet 2026-07-23 via en konkret annonce ("Wonderland
-       top madras", item/23104939) der IKKE blev afvist fordi "wonderland"
-       (et ønske-mærke) forhindrede mønster-tjekket punkt 4 i at naa den -
-       samme fejl som brugeren selv allerede havde rettet manuelt (den
-       PRÆCIS samme titel findes blandt de manuelle afvisninger).
+    3'. To UBETINGEDE mønstre, IKKE beskyttet af whitelisten i punkt 3 (samme
+       begrundelse som størrelse): en løs topper eller forkert produkttype
+       er stadig forkert uanset mærke.
+       - Topmadras-ALENE (kun hvis "seng" ikke også nævnes). Fundet
+         2026-07-23 via "Wonderland top madras" (item/23104939), der
+         undslap fordi "wonderland" er et ønske-mærke.
+       - Juniorseng/børneseng/hundeseng. Fundet 2026-07-23: en tidligere
+         "Ilva juniorseng"-annonce var kun afvist MANUELT (aldrig som
+         regel) - en ny annonce med identisk titel men nyt DBA-id dukkede
+         derfor bare op igen.
     3. Whitelist: et ønske-mærke ELLER en tydelig "seng"+"madras"-kombination
        forhindrer punkt 4's ØVRIGE mønster-regler (men IKKE punkt 2's
        mærke-tjek, IKKE størrelse, og IKKE 3' ovenfor).
@@ -159,6 +174,9 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
 
     if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
         return True, "auto:topmadras-alene"
+
+    if _WRONG_TYPE_PATTERN.search(title):
+        return True, "auto:forkert-produkttype"
 
     whitelist = config.get("auto_dismiss_whitelist_keywords", [])
     if any(w.lower() in title_lower for w in whitelist):
@@ -193,6 +211,7 @@ def run_source(
     add_column_if_missing(store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
     add_column_if_missing(store.connection, "listings", "brand", "TEXT")
+    add_column_if_missing(store.connection, "listings", "image_url", "TEXT")
     raw_count = 0
     changed = 0
 
@@ -226,6 +245,7 @@ def run_source(
                 "dismissed": int(dismissed),
                 "dismissed_reason": dismissed_reason,
                 "brand": brand,
+                "image_url": raw.get("image_url"),
             }
 
             is_new_or_changed = store.upsert_if_changed(
