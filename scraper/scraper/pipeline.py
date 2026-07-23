@@ -67,6 +67,16 @@ _WRONG_TYPE_PATTERN = re.compile(r"\b(junior\s*seng|børneseng|hunde\s*seng|dog\
 # kategori som løs topmadras: en billig, enkeltstående madras-type, ikke det
 # brugeren efterspørger, medmindre den saelges som del af en hel seng.
 _TOPMADRAS_ALONE_PATTERN = re.compile(r"\b(top\s*madras|rullemadras)\b", re.I)
+# "Lamelbund"/"lamelrist" (løs lamelbund/-rist solgt alene) tilføjet
+# 2026-07-23 (item/21644515, titel udelukkende "Lamelbund") - matchede INTET
+# eksisterende mønster ("senge bund" kræver "senge"-præfiks, "lameller"
+# kræver flertalsformen). Samme UBETINGET-men-seng-guardet struktur som
+# topmadras-alene ovenfor (IKKE i den whitelist-beskyttede _LOOSE_PART_
+# PATTERNS-gruppe): en løs base er stadig ikke en seng, uanset mærke - men
+# "Drømmeland elevationsseng MED lamelbund" er en hel seng og skal IKKE
+# rammes (fundet ved test af denne ændring - _SENG_PATTERN-guarden er
+# derfor et krav, ikke en efterfølgende finpudsning).
+_LOOSE_BASE_ALONE_PATTERN = re.compile(r"\b(lamelbund|lamelrist)\b", re.I)
 # INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
 # adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
 # foran ville aldrig kunne matche disse (ingen ord-graense mellem "ts" og
@@ -155,6 +165,10 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
        - Topmadras-ALENE (kun hvis "seng" ikke også nævnes). Fundet
          2026-07-23 via "Wonderland top madras" (item/23104939), der
          undslap fordi "wonderland" er et ønske-mærke.
+       - Lamelbund/lamelrist-ALENE (samme "seng"-guard). Fundet 2026-07-23
+         via item/21644515 ("Lamelbund") - en hel seng der blot MEDFØLGER
+         en lamelbund ("Drømmeland elevationsseng med lamelbund") skal
+         stadig IKKE rammes.
        - Juniorseng/børneseng/hundeseng. Fundet 2026-07-23: en tidligere
          "Ilva juniorseng"-annonce var kun afvist MANUELT (aldrig som
          regel) - en ny annonce med identisk titel men nyt DBA-id dukkede
@@ -186,6 +200,13 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
 
     if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
         return True, "auto:topmadras-alene"
+
+    if (
+        _LOOSE_BASE_ALONE_PATTERN.search(title)
+        and not _SENG_PATTERN.search(title)
+        and "madras" not in title_lower
+    ):
+        return True, "auto:lamelbund-alene"
 
     if _WRONG_TYPE_PATTERN.search(title):
         return True, "auto:forkert-produkttype"

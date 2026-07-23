@@ -21,6 +21,16 @@ targets:
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&product_category=2.78.5197.293&q=dux"
   - name: "Auping, <=1500 kr"
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1500&q=auping&sub_category=1.78.5197"
+  # 2026-07-23: Wonderland stod i auto_dismiss_whitelist_keywords (nedenfor)
+  # som et ønske-mærke, men havde ALDRIG noget eget søgemål, modsat de andre
+  # ønske-mærker (Jensen/Dunlopillo/Auping/DUX har hver deres, Carpe Diem/
+  # Hästens deler "Premium-mærker" via brand-ID). Uden et mål her bliver
+  # Wonderland-annoncer ALDRIG scrapet, med mindre de tilfældigvis rammer et
+  # af de andre (geografi-/bredde-baserede) mål - fundet via en konkret
+  # overset annonce: https://www.dba.dk/21963773 ("Wonderland w8
+  # springmadras 90x200").
+  - name: "Wonderland, <=1500 kr"
+    url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1500&q=wonderland&sub_category=1.78.5197"
   - name: "Nærhed 85-95cm, <=1000 kr"
     url: "https://www.dba.dk/recommerce/forsale/search?lat=55.710835&location=0.200001&lon=12.430368&price_to=1000&sort=PUBLISHED_DESC&sub_category=1.78.5197&width_cm_from=85&width_cm_to=95"
   - name: "Dunlopillo 85-100cm, <=1000 kr"
