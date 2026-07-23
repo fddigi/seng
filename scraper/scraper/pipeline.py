@@ -128,6 +128,18 @@ ON CONFLICT(item_key) DO UPDATE SET
 """
 
 
+# Til sync_pending() (scraper_core) - se dens docstring for hvorfor dette er
+# nødvendigt: uden disse ville en Turso-resync (udløst af at prisen/titlen
+# ændrer sig) blindt overskrive first_seen/dismissed/dismissed_reason med
+# denne køsels friske værdier, og brand med den evt. tomme auto-genkendte
+# værdi selv efter en manuel rettelse (brand_manual = 1). Matcher PRÆCIS den
+# beskyttelse `_INSERT_SQL` ovenfor allerede giver den lokale sqlite-skrivning.
+SYNC_PROTECTED_COLUMNS = {"first_seen", "dismissed", "dismissed_reason"}
+SYNC_CONDITIONAL_COLUMNS = {
+    "brand": "CASE WHEN brand_manual = 1 THEN brand ELSE excluded.brand END"
+}
+
+
 def make_item_key(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
 

@@ -19,7 +19,12 @@ from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
 from scraper.beds_config import load_config
-from scraper.pipeline import TURSO_SCHEMA, run_source
+from scraper.pipeline import (
+    SYNC_CONDITIONAL_COLUMNS,
+    SYNC_PROTECTED_COLUMNS,
+    TURSO_SCHEMA,
+    run_source,
+)
 from scraper.schema_utils import add_column_if_missing
 from scraper.sources import dba
 
@@ -52,7 +57,12 @@ def run() -> int:
                     add_column_if_missing(
                         turso, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0"
                     )
-                    synced = sync_pending(store, turso)
+                    synced = sync_pending(
+                        store,
+                        turso,
+                        protected_update_columns=SYNC_PROTECTED_COLUMNS,
+                        conditional_update_columns=SYNC_CONDITIONAL_COLUMNS,
+                    )
                 logger.info(
                     "run complete: %d raw, %d new/changed, %d synced to Turso",
                     raw_count, changed, synced,
