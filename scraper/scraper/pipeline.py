@@ -322,6 +322,15 @@ def run_source(
                     (now, item_key),
                 )
                 store.connection.commit()
+                # 2026-07-23: denne last_seen-opdatering skal OGSAA til Turso -
+                # "upsert_if_changed" enqueuer INTET her (content uaendret), saa
+                # uden dette ville Turso's last_seen staa frosset paa foerste
+                # indsaettelse for evigt for enhver annonce der aldrig aendrer
+                # sig - se enqueue_update()'s docstring for hvorfor.
+                store.enqueue_update(TARGET_TABLE, {
+                    "item_key": item_key,
+                    "last_seen": now,
+                })
                 continue
 
             store.connection.execute(_INSERT_SQL, payload)

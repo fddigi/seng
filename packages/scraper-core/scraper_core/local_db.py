@@ -121,6 +121,28 @@ class LocalStore:
         self._conn.commit()
         return True
 
+    def enqueue_update(self, target_table: str, payload: dict) -> None:
+        """Enqueue a minimal 'update'-op outbox row directly, bypassing the
+        content-hash dedup check in `upsert_if_changed`.
+
+        For callers that already know a row is unchanged (they just checked via
+        `upsert_if_changed` and got False back) but still need ONE field (e.g. a
+        `last_seen` touch) to reach Turso. Without this, an unchanged-but-still-
+        found row's `last_seen` only ever gets updated in the LOCAL sqlite table
+        (a plain `connection.execute`, never queued) - it silently never syncs to
+        Turso at all, because the outbox only enqueues on a genuine content
+        change. Found 2026-07-23 (seng project): this made "hasn't been seen in
+        48h -> probably sold" detection meaningless for any listing whose price/
+        title never changes, since Turso's last_seen would stay frozen at
+        first_seen forever regardless of how many times the scraper re-confirmed
+        it was still there.
+        """
+        self._conn.execute(
+            "INSERT INTO sync_queue (target_table, op, row_json) VALUES (?, 'update', ?)",
+            (target_table, json.dumps(payload, default=str)),
+        )
+        self._conn.commit()
+
     def pending_sync_rows(self, limit: int = 500) -> list[sqlite3.Row]:
         """Rows not yet pushed to Turso, oldest first."""
         return self._conn.execute(
