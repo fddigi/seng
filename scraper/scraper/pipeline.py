@@ -52,8 +52,14 @@ _LOOSE_PART_PATTERNS = [
 ]
 _LAGEN_PATTERN = re.compile(r"\blagen\b", re.I)
 _SEEKING_PATTERN = re.compile(r"^søger\b", re.I)
-_TOPMADRAS_ALONE_PATTERN = re.compile(r"^top\s*madras\b", re.I)
-_SENG_PATTERN = re.compile(r"\bseng\w*\b", re.I)  # seng/senge/sengen/senges osv.
+_TOPMADRAS_ALONE_PATTERN = re.compile(r"\btop\s*madras\b", re.I)
+# INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
+# adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
+# foran ville aldrig kunne matche disse (ingen ord-graense mellem "ts" og
+# "seng"). Fundet 2026-07-23 da "Ilva enkeltmandsseng med topmadras" fejlagtigt
+# blev afvist af topmadras-reglen, fordi _SENG_PATTERN aldrig genkendte
+# "enkeltmandsseng" som en seng.
+_SENG_PATTERN = re.compile(r"seng\w*\b", re.I)
 
 TARGET_TABLE = "listings"
 
@@ -118,9 +124,18 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
        beskyttet af whitelisten i punkt 3 (mærke-kvalitet er en anden akse
        end løsdel-mønstrene, og de to bør aldrig kunne modsige hinanden i
        samme titel).
+    3'. Topmadras-ALENE (kun hvis "seng" ikke også nævnes) - ligesom
+       størrelse-tjekket er dette IKKE beskyttet af whitelisten: en løs
+       topper er stadig kun en løs topper, uanset om den er fra et
+       ønske-mærke. Fundet 2026-07-23 via en konkret annonce ("Wonderland
+       top madras", item/23104939) der IKKE blev afvist fordi "wonderland"
+       (et ønske-mærke) forhindrede mønster-tjekket punkt 4 i at naa den -
+       samme fejl som brugeren selv allerede havde rettet manuelt (den
+       PRÆCIS samme titel findes blandt de manuelle afvisninger).
     3. Whitelist: et ønske-mærke ELLER en tydelig "seng"+"madras"-kombination
-       forhindrer punkt 4's mønster-regler (men IKKE punkt 2's mærke-tjek).
-    4. Mønster-regler (løsdele/lagen/søger/topmadras-alene).
+       forhindrer punkt 4's ØVRIGE mønster-regler (men IKKE punkt 2's
+       mærke-tjek, IKKE størrelse, og IKKE 3' ovenfor).
+    4. Resterende mønster-regler (løsdele/lagen/søger).
     """
     targets_by_name = {t["name"]: t for t in config.get("targets", [])}
     target_cfg = targets_by_name.get(target_name, {})
@@ -142,6 +157,9 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
         if re.search(rf"(?<!\d){size}(?!\d)", title):
             return True, f"auto:størrelse-{size}"
 
+    if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
+        return True, "auto:topmadras-alene"
+
     whitelist = config.get("auto_dismiss_whitelist_keywords", [])
     if any(w.lower() in title_lower for w in whitelist):
         return False, None
@@ -157,9 +175,6 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
 
     if _SEEKING_PATTERN.search(title):
         return True, "auto:søges-annonce"
-
-    if _TOPMADRAS_ALONE_PATTERN.search(title) and not _SENG_PATTERN.search(title):
-        return True, "auto:topmadras-alene"
 
     return False, None
 

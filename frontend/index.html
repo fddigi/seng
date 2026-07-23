@@ -8,14 +8,56 @@
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 20px auto; padding: 0 12px; }
     .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
     .toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #666; }
-    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; table-layout: fixed; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Desktop-kolonnebredder - Titel skal have mest plads, Handling mindst. */
+    th:nth-child(1), td:nth-child(1) { width: 9%; }
+    th:nth-child(2), td:nth-child(2) { width: 12%; }
+    th:nth-child(3), td:nth-child(3) { width: 20%; }
+    th:nth-child(4), td:nth-child(4) { width: 37%; white-space: normal; }
+    th:nth-child(5), td:nth-child(5) { width: 14%; }
+    th:nth-child(6), td:nth-child(6) { width: 8%; }
     th button { background: none; border: none; font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
     a.row-link { color: #0645ad; text-decoration: none; }
     a.row-link:hover { text-decoration: underline; }
     .empty-state { text-align: center; color: #888; padding: 20px; }
     .dismiss-badge { font-size: 0.75em; color: #a33; margin-left: 6px; }
     button.row-action { font-size: 0.8rem; padding: 2px 8px; cursor: pointer; }
+    /* UX-sprint 2026-07-23 (Opus-kritik): pris er det vigtigste i en række -
+       fremhæv den fremfor at lade alle kolonner se ens ud. */
+    td.price-cell { font-weight: 700; }
+    #active-filters-note { color: #666; font-size: 0.85rem; }
+    #reset-filters { display: none; }
+
+    /* Mobil: tabel -> stablede kort. Samme mønster som PA SPEAKERS-projektet
+       (data-label leverer etiketten via ::before) - undgår vandret scroll.
+       "Mål"-kolonnen er bevidst SKJULT her (lange, tekniske søgefilter-navne
+       som "Bred 175-185cm (par-bredde), <=1000 kr" gør et smalt kort
+       ulæseligt) - den er stadig synlig på desktop, hvor der er plads. */
+    @media (max-width: 640px) {
+      table, thead, tbody, tr, td { display: block; width: 100%; }
+      table { table-layout: auto; }
+      thead {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+      }
+      tbody tr { border: 1px solid #ddd; border-radius: 6px; margin: 10px 0; padding: 4px 12px; }
+      tbody td {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 12px; padding: 8px 0; border-bottom: 1px dashed #eee;
+        white-space: normal; text-align: right; overflow: visible;
+      }
+      tbody tr td:last-child { border-bottom: none; }
+      tbody td::before {
+        content: attr(data-label); font-weight: 600; color: #888;
+        text-align: left; flex-shrink: 0;
+      }
+      tbody td[data-label="Mål"] { display: none; }
+      tbody td[data-label="Titel"] { text-align: left; }
+      .empty-state { text-align: center; display: block; }
+      /* Stoerre toucmaal end 2px/8px - for smaa til en tommelfinger. */
+      button.row-action { padding: 8px 16px; font-size: 0.9rem; }
+    }
   </style>
 </head>
 <body>
@@ -26,7 +68,7 @@
     <input type="text" id="filter-search" placeholder="Filtrér efter titel/mål..." />
     <select id="brand-filter">
       <option value="">Alle mærker</option>
-      <option value="__any__">Kun ønskemærker</option>
+      <option value="__any__">Kun med kendt mærke</option>
     </select>
     <label class="toggle">
       Maks pris:
@@ -36,14 +78,16 @@
     </label>
     <label class="toggle">
       <input type="checkbox" id="show-stale-toggle" />
-      Vis også ikke-aktive
+      Vis også formodet solgte
     </label>
     <label class="toggle">
       <input type="checkbox" id="show-dismissed-toggle" />
       Vis også afviste
     </label>
     <button id="reload">Genindlæs</button>
+    <button id="reset-filters" type="button">Nulstil filtre</button>
   </div>
+  <p id="active-filters-note"></p>
 
   <table id="listings-table">
     <thead>
@@ -178,6 +222,28 @@
       });
     }
 
+    // UX-sprint 2026-07-23 (Opus-kritik): standard-prisfilteret (800 kr) er et
+    // "skjult" filter - en ny bruger ser færre senge end der findes uden at
+    // vide hvorfor. Vis derfor altid eksplicit hvilke filtre der er aktive.
+    function getActiveFilterNotes() {
+      const notes = [];
+      if (maxPriceFilter != null) notes.push(`pris ≤ ${maxPriceFilter} kr`);
+      if (brandFilter === "__any__") notes.push("kun med kendt mærke");
+      else if (brandFilter) notes.push(`mærke: ${brandFilter}`);
+      const search = document.getElementById("filter-search").value.trim();
+      if (search) notes.push(`søgning: "${search}"`);
+      return notes;
+    }
+
+    function resetFilters() {
+      document.getElementById("filter-search").value = "";
+      document.getElementById("brand-filter").value = "";
+      document.getElementById("max-price-filter").value = "";
+      brandFilter = "";
+      maxPriceFilter = null;
+      renderTable();
+    }
+
     function renderTable() {
       const search = document.getElementById("filter-search").value.toLowerCase().trim();
       const tbody = document.querySelector("#listings-table tbody");
@@ -200,9 +266,20 @@
         return haystack.includes(search);
       });
 
+      const activeFilterNotes = getActiveFilterNotes();
+      const filterNote = document.getElementById("active-filters-note");
+      const resetBtn = document.getElementById("reset-filters");
+      if (activeFilterNotes.length > 0) {
+        filterNote.textContent = `Aktive filtre: ${activeFilterNotes.join(", ")}`;
+        resetBtn.style.display = "inline-block";
+      } else {
+        filterNote.textContent = "";
+        resetBtn.style.display = "none";
+      }
+
       const suffixParts = [];
       if (dismissedHidden > 0) suffixParts.push(`${dismissedHidden} afvist${dismissedHidden === 1 ? "" : "e"}`);
-      if (staleHidden > 0) suffixParts.push(`${staleHidden} sandsynligvis solgt${staleHidden === 1 ? "" : "e"}`);
+      if (staleHidden > 0) suffixParts.push(`${staleHidden} formodet solgt${staleHidden === 1 ? "" : "e"}`);
       const countSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(", ")} skjult)` : "";
 
       if (filtered.length === 0) {
@@ -210,7 +287,13 @@
         const td = document.createElement("td");
         td.colSpan = 6;
         td.className = "empty-state";
-        td.textContent = allListings.length === 0 ? "Ingen annoncer endnu." : "Ingen annoncer matcher filteret.";
+        if (allListings.length === 0) {
+          td.textContent = "Ingen annoncer endnu.";
+        } else if (activeFilterNotes.length > 0) {
+          td.textContent = `Ingen annoncer matcher filteret (${activeFilterNotes.join(", ")}).`;
+        } else {
+          td.textContent = "Ingen annoncer matcher filteret.";
+        }
         tr.appendChild(td);
         tbody.appendChild(tr);
         document.getElementById("count-line").textContent =
@@ -222,18 +305,23 @@
         const tr = document.createElement("tr");
 
         const priceCell = document.createElement("td");
+        priceCell.className = "price-cell";
+        priceCell.dataset.label = "Pris";
         priceCell.textContent = row.price_dkk != null ? `${Math.round(row.price_dkk)} kr` : "?";
         tr.appendChild(priceCell);
 
         const brandCell = document.createElement("td");
+        brandCell.dataset.label = "Mærke";
         brandCell.textContent = row.brand ? row.brand.charAt(0).toUpperCase() + row.brand.slice(1) : "-";
         tr.appendChild(brandCell);
 
         const targetCell = document.createElement("td");
+        targetCell.dataset.label = "Mål";
         targetCell.textContent = row.target ?? "";
         tr.appendChild(targetCell);
 
         const titleCell = document.createElement("td");
+        titleCell.dataset.label = "Titel";
         const link = document.createElement("a");
         link.className = "row-link";
         link.href = row.url ?? "#";
@@ -250,14 +338,20 @@
         tr.appendChild(titleCell);
 
         const seenCell = document.createElement("td");
+        seenCell.dataset.label = "Først set";
         seenCell.textContent = (row.first_seen ?? "").slice(0, 16).replace("T", " ");
         tr.appendChild(seenCell);
 
         const actionCell = document.createElement("td");
+        actionCell.dataset.label = "Handling";
         const actionBtn = document.createElement("button");
         actionBtn.type = "button";
         actionBtn.className = "row-action";
-        actionBtn.textContent = isDismissed(row) ? "Genskab" : "Skjul";
+        // "Afvis"/"afvist" (ikke "Skjul") - matcher toggle-navnet "Vis også
+        // afviste" og badge-teksten "(afvist manuelt)" 1:1 (UX-kritik
+        // 2026-07-23: "Skjul" og "afvist" var to forskellige ord for samme
+        // handling, forvirrende ved første øjekast).
+        actionBtn.textContent = isDismissed(row) ? "Genskab" : "Afvis";
         actionBtn.addEventListener("click", () => setDismissed(row.item_key, !isDismissed(row)));
         actionCell.appendChild(actionBtn);
         tr.appendChild(actionCell);
@@ -295,6 +389,7 @@
       maxPriceFilter = null;
       renderTable();
     });
+    document.getElementById("reset-filters").addEventListener("click", resetFilters);
     document.getElementById("show-stale-toggle").addEventListener("change", (event) => {
       showStale = event.target.checked;
       renderTable();
