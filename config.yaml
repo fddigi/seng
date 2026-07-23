@@ -10,7 +10,44 @@
 #
 # Hver fundet annonce tagges med `target`-navnet, så frontend'en kan vise
 # hvilken gemt søgning der fandt den.
+#
+# RÆKKEFØLGE ER VIGTIG: mål med skip_auto_dismiss/force_dismiss_reason (Valevåg/
+# JYSK/IKEA) staar FØRST, FØR de brede/generiske maal. Grunden: dismissed/
+# dismissed_reason laases ved FØRSTE indsættelse af en URL og røres ALDRIG
+# igen ved senere gensyn (se pipeline.py's _INSERT_SQL) - ogsaa INDEN FOR
+# samme koersel. Hvis et generisk maal (fx "Nærhed 85-95cm") fandt en JYSK-
+# eller IKEA-annonce FØR det dedikerede mærke-ID-maal naaede den, blev den
+# forkerte "ikke afvist"-vurdering laast ind for altid, ogsaa naar JYSK/IKEA-
+# maalet bagefter (samme koersel) korrekt vurderede den til at skulle
+# afvises. Fundet 2026-07-23 via to konkrete eksempler (item/23186636
+# "Boksmadras" = IKEA, item/23050838 "Seng sælges" = JYSK - INGEN af
+# titlerne nævner mærket, kun DBA's egen mærke-facet gør).
 targets:
+  # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
+  # flag ville auto_dismiss_brands (nedenfor) fjerne ALLE dets resultater, siden
+  # de naturligvis alle indeholder "IKEA" i titlen.
+  - name: "Valevåg (IKEA)"
+    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
+    skip_auto_dismiss: true
+  # 2026-07-22: titel-tekst-match ("jysk" i auto_dismiss_brands) fanger IKKE
+  # annoncer hvor sælgeren aldrig skriver mærket i titlen, kun DBA's egen
+  # strukturerede mærke-tag (fundet: https://www.dba.dk/recommerce/forsale/
+  # item/23259908 "Boxmadras m stålrørsben 24cm" - reelt en JYSK-madras, men
+  # ordet "jysk" står INGEN steder i titlen). brand=9608 er JYSKs bekræftede
+  # mærke-ID på DBA (fundet via mærke-facetten på kategorisiden). Alt fundet
+  # her afvises UBETINGET - se force_dismiss_reason i pipeline.py.
+  - name: "JYSK (mærke-ID, altid afvist)"
+    url: "https://www.dba.dk/recommerce/forsale/search?brand=9608&sub_category=1.78.5197"
+    force_dismiss_reason: "auto:jysk-brand-id"
+  # 2026-07-23: samme gab som JYSK ovenfor, nu fundet for IKEA - item/23186636
+  # "Boksmadras" er bekræftet et IKEA-produkt via DBA's mærke-facet
+  # (brand=9174), men ordet "ikea" staar INGEN steder i titlen, saa hverken
+  # auto_dismiss_brands (titel-tekst) eller nogen anden regel fangede den.
+  # IKEA's bekræftede mærke-ID er 9174 (fundet via mærke-facetten paa
+  # kategorisiden, samme metode som JYSK).
+  - name: "IKEA (mærke-ID, altid afvist)"
+    url: "https://www.dba.dk/recommerce/forsale/search?brand=9174&sub_category=1.78.5197"
+    force_dismiss_reason: "auto:ikea-brand-id"
   - name: "Bred 175-185cm (par-bredde), <=1000 kr"
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1000&sort=PUBLISHED_DESC&sub_category=1.78.5197&width_cm_from=175&width_cm_to=185"
   - name: "Latex 85-95cm"
@@ -37,22 +74,6 @@ targets:
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&price_to=1000&q=Dunlopillo&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
   - name: "Jensen 85-100cm"
     url: "https://www.dba.dk/recommerce/forsale/search?location=0.200001&q=jensen&sub_category=1.78.5197&width_cm_from=85&width_cm_to=100"
-  # skip_auto_dismiss: dette maal SOEGER bevidst efter en IKEA-model - uden dette
-  # flag ville auto_dismiss_brands (nedenfor) fjerne ALLE dets resultater, siden
-  # de naturligvis alle indeholder "IKEA" i titlen.
-  - name: "Valevåg (IKEA)"
-    url: "https://www.dba.dk/recommerce/forsale/search?q=Valev%C3%A5g&sub_category=1.78.5197"
-    skip_auto_dismiss: true
-  # 2026-07-22: titel-tekst-match ("jysk" i auto_dismiss_brands) fanger IKKE
-  # annoncer hvor sælgeren aldrig skriver mærket i titlen, kun DBA's egen
-  # strukturerede mærke-tag (fundet: https://www.dba.dk/recommerce/forsale/
-  # item/23259908 "Boxmadras m stålrørsben 24cm" - reelt en JYSK-madras, men
-  # ordet "jysk" står INGEN steder i titlen). brand=9608 er JYSKs bekræftede
-  # mærke-ID på DBA (fundet via mærke-facetten på kategorisiden). Alt fundet
-  # her afvises UBETINGET - se force_dismiss_reason i pipeline.py.
-  - name: "JYSK (mærke-ID, altid afvist)"
-    url: "https://www.dba.dk/recommerce/forsale/search?brand=9608&sub_category=1.78.5197"
-    force_dismiss_reason: "auto:jysk-brand-id"
 
 # Mærker der auto-afvises (lav kvalitet/ikke-interesse) ved indsættelse -
 # gælder IKKE mål med skip_auto_dismiss: true (se Valevåg ovenfor). Kun sat
