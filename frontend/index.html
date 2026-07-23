@@ -10,13 +10,15 @@
     .toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #666; }
     table { border-collapse: collapse; width: 100%; font-size: 0.9rem; table-layout: fixed; }
     th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Desktop-kolonnebredder - Titel skal have mest plads, Handling mindst. */
+    /* Desktop-kolonnebredder - Titel skal have mest plads, Handling mindst.
+       2026-07-23: Mærke og Handling udvidet lidt for at give plads til
+       hhv. ✎-rette-mærke og 📌-pin-knap ved siden af de eksisterende. */
     th:nth-child(1), td:nth-child(1) { width: 9%; }
-    th:nth-child(2), td:nth-child(2) { width: 12%; }
-    th:nth-child(3), td:nth-child(3) { width: 20%; }
-    th:nth-child(4), td:nth-child(4) { width: 37%; white-space: normal; }
+    th:nth-child(2), td:nth-child(2) { width: 14%; }
+    th:nth-child(3), td:nth-child(3) { width: 18%; }
+    th:nth-child(4), td:nth-child(4) { width: 33%; white-space: normal; }
     th:nth-child(5), td:nth-child(5) { width: 14%; }
-    th:nth-child(6), td:nth-child(6) { width: 8%; }
+    th:nth-child(6), td:nth-child(6) { width: 12%; }
     th button { background: none; border: none; font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
     a.row-link { color: #0645ad; text-decoration: none; }
     a.row-link:hover { text-decoration: underline; }
@@ -28,6 +30,37 @@
     td.price-cell { font-weight: 700; }
     #active-filters-note { color: #666; font-size: 0.85rem; }
     #reset-filters { display: none; }
+
+    /* Pin/favorit - genbruger ejendompython-mønsteret (lys-gul baggrund på
+       fastgjorte rækker, samme farvekoder). Fastgjorte annoncer springer
+       pris/mærke/søgefilter over og sorteres altid øverst (se applySort). */
+    tr.pinned td { background: #fefce8; }
+    tr.pinned:hover td { background: #fef9c3; }
+    .listing-card.pinned { background: #fefce8; border-color: #fde68a; }
+    button.icon-btn {
+      background: none; border: none; cursor: pointer; font-size: 0.9rem;
+      padding: 0 2px; opacity: 0.55; line-height: 1;
+    }
+    button.icon-btn.active, button.icon-btn:hover { opacity: 1; }
+    .inline-actions { display: flex; align-items: center; gap: 4px; }
+    .card-brand-wrap { display: flex; align-items: center; gap: 4px; }
+
+    /* Fortryd-besked efter "Afvis" - undgår at kræve "Vis også afviste" +
+       "Genskab" for en handling der lige er sket (UX-feedback 2026-07-23). */
+    #undo-toast {
+      display: none; align-items: center; gap: 10px; font-size: 0.9rem;
+      background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px;
+      padding: 8px 12px; margin: 10px 0;
+    }
+    #undo-toast button { cursor: pointer; font-weight: 600; }
+
+    /* Manuel tilføjelse - skjult indtil "+ Tilføj annonce" klikkes. */
+    #manual-add-form {
+      display: none; gap: 8px; flex-wrap: wrap; align-items: center;
+      margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 6px;
+      background: #f9fafb;
+    }
+    #manual-add-form input { padding: 5px 7px; }
 
     /* UX-sprint 2026-07-23, runde 2 (Opus-spec): det label-per-række mønster
        (samme som PA SPEAKERS brugte) var for højt på mobil - 5 felter x
@@ -94,8 +127,20 @@
     </label>
     <button id="reload">Genindlæs</button>
     <button id="reset-filters" type="button">Nulstil filtre</button>
+    <button id="show-add-form" type="button">+ Tilføj annonce</button>
   </div>
   <p id="active-filters-note"></p>
+
+  <form id="manual-add-form">
+    <input type="text" id="add-title" placeholder="Titel" required style="flex: 1 1 220px" />
+    <input type="url" id="add-url" placeholder="Link (dba.dk, Facebook Marketplace, ...)" required style="flex: 1 1 260px" />
+    <input type="number" id="add-price" placeholder="Pris (kr)" min="0" step="1" style="width: 100px" />
+    <input type="text" id="add-brand" placeholder="Mærke (valgfrit)" style="width: 140px" />
+    <button type="submit">Tilføj</button>
+    <button type="button" id="cancel-add-form">Annullér</button>
+  </form>
+
+  <div id="undo-toast"></div>
 
   <table id="listings-table">
     <thead>
@@ -139,6 +184,10 @@
 
     function isDismissed(row) {
       return !!row.dismissed;
+    }
+
+    function isPinned(row) {
+      return !!row.pinned;
     }
 
     function authHeaders() {
@@ -211,10 +260,94 @@
       renderTable();
     }
 
+    // Pin/favorit - genbruger ejendompython/proqual-mønsteret: en simpel
+    // boolean-flag, togglet via en 📌-knap, som sorterer fastgjorte annoncer
+    // øverst og lader dem springe pris/mærke/søgefilter over (se applySort/
+    // renderTable). Data slettes/ændres aldrig andet end selve pin-flaget.
+    async function setPinned(itemKey, pinned) {
+      const path = pinned ? "pin" : "unpin";
+      const res = await fetch(`${API_BASE}/api/listings/${encodeURIComponent(itemKey)}/${path}`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke opdatere pin.";
+        return;
+      }
+      const row = allListings.find((r) => r.item_key === itemKey);
+      if (row) row.pinned = pinned ? 1 : 0;
+      applySort();
+      renderTable();
+    }
+
+    // Manuel mærke-rettelse for annoncer hvor auto-genkendelsen ikke fangede
+    // et reelt ønske-mærke (fx en "Jensen seng" uden ordet i titlen). Sætter
+    // brand_manual = 1 server-side, hvilket beskytter rettelsen mod at blive
+    // overskrevet af scraperens næste re-sync (se pipeline.py).
+    async function setBrand(itemKey, brand) {
+      const res = await fetch(`${API_BASE}/api/listings/${encodeURIComponent(itemKey)}/brand`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ brand }),
+      });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke opdatere mærke.";
+        return;
+      }
+      const row = allListings.find((r) => r.item_key === itemKey);
+      if (row) {
+        row.brand = brand || null;
+        row.brand_manual = 1;
+      }
+      renderBrandFilter();
+      renderTable();
+    }
+
+    function promptEditBrand(row) {
+      const input = window.prompt("Mærke:", row.brand ?? "");
+      if (input === null) return; // annulleret
+      setBrand(row.item_key, input.trim() || null);
+    }
+
+    // Fortryd-besked lige efter "Afvis" - før krævede en fortrydelse at man
+    // slog "Vis også afviste" til og fandt rækken igen for at trykke
+    // "Genskab" (bruger-feedback 2026-07-23: for besværligt til en handling
+    // der lige skete). Vises KUN ved afvisning, ikke ved genskab.
+    let undoToastTimer = null;
+
+    function hideUndoToast() {
+      document.getElementById("undo-toast").style.display = "none";
+      clearTimeout(undoToastTimer);
+    }
+
+    function showUndoToast(itemKey, title) {
+      clearTimeout(undoToastTimer);
+      const toast = document.getElementById("undo-toast");
+      toast.innerHTML = "";
+      toast.style.display = "flex";
+      const text = document.createElement("span");
+      text.textContent = `Afvist: "${title}".`;
+      toast.appendChild(text);
+      const undoBtn = document.createElement("button");
+      undoBtn.type = "button";
+      undoBtn.textContent = "Fortryd";
+      undoBtn.addEventListener("click", () => {
+        setDismissed(itemKey, false);
+        hideUndoToast();
+      });
+      toast.appendChild(undoBtn);
+      undoToastTimer = setTimeout(hideUndoToast, 8000);
+    }
+
     function applySort() {
       const th = document.querySelector(`#listings-table th[data-key="${sortKey}"]`);
       const numeric = th?.dataset.numeric === "true";
       allListings.sort((a, b) => {
+        // Fastgjorte annoncer ligger altid øverst (ejendompython-mønster),
+        // uanset hvilken kolonne der er valgt til sortering - internt
+        // imellem dem gælder stadig den valgte sortering.
+        const pinDiff = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+        if (pinDiff !== 0) return pinDiff;
         const av = a[sortKey], bv = b[sortKey];
         if (numeric) return sortAsc ? (av ?? 0) - (bv ?? 0) : (bv ?? 0) - (av ?? 0);
         return sortAsc
@@ -259,7 +392,7 @@
     // stedet for en fuld linje. ~90-95px pr. kort mod ~250-300px før.
     function buildCard(row) {
       const card = document.createElement("div");
-      card.className = "listing-card";
+      card.className = "listing-card" + (isPinned(row) ? " pinned" : "");
 
       if (row.image_url) {
         const img = document.createElement("img");
@@ -280,16 +413,35 @@
 
       const top = document.createElement("div");
       top.className = "card-top";
+
+      const pinBtn = document.createElement("button");
+      pinBtn.type = "button";
+      pinBtn.className = "icon-btn" + (isPinned(row) ? " active" : "");
+      pinBtn.title = isPinned(row) ? "Fjern pin" : "Pin øverst";
+      pinBtn.textContent = "📌";
+      pinBtn.addEventListener("click", () => setPinned(row.item_key, !isPinned(row)));
+      top.appendChild(pinBtn);
+
       const price = document.createElement("span");
       price.className = "card-price";
       price.textContent = row.price_dkk != null ? `${Math.round(row.price_dkk)} kr` : "?";
       top.appendChild(price);
+      const brandWrap = document.createElement("span");
+      brandWrap.className = "card-brand-wrap";
       if (row.brand) {
         const brand = document.createElement("span");
         brand.className = "card-brand";
         brand.textContent = row.brand;
-        top.appendChild(brand);
+        brandWrap.appendChild(brand);
       }
+      const editBrandBtn = document.createElement("button");
+      editBrandBtn.type = "button";
+      editBrandBtn.className = "icon-btn";
+      editBrandBtn.title = "Ret mærke";
+      editBrandBtn.textContent = "✎";
+      editBrandBtn.addEventListener("click", () => promptEditBrand(row));
+      brandWrap.appendChild(editBrandBtn);
+      top.appendChild(brandWrap);
       if (isDismissed(row)) {
         const badge = document.createElement("span");
         badge.className = "dismiss-badge";
@@ -319,7 +471,11 @@
       actionBtn.type = "button";
       actionBtn.className = "card-action";
       actionBtn.textContent = isDismissed(row) ? "Genskab" : "Afvis";
-      actionBtn.addEventListener("click", () => setDismissed(row.item_key, !isDismissed(row)));
+      actionBtn.addEventListener("click", () => {
+        const next = !isDismissed(row);
+        setDismissed(row.item_key, next);
+        if (next) showUndoToast(row.item_key, row.title ?? "");
+      });
       card.appendChild(actionBtn);
 
       return card;
@@ -338,6 +494,10 @@
       const filtered = allListings.filter((row) => {
         if (!showDismissed && isDismissed(row)) return false;
         if (!showStale && isStale(row)) return false;
+        // Fastgjorte annoncer springer pris/mærke/søgefilter over (samme
+        // "pinned bypasser filtre"-logik som ejendompython) - dismissed/stale
+        // styrer stadig, det er ikke en "vis for evigt uanset alt"-flag.
+        if (isPinned(row)) return true;
         if (brandFilter === "__any__" && !row.brand) return false;
         if (brandFilter && brandFilter !== "__any__" && row.brand !== brandFilter) return false;
         // Ukendt pris (null) skjules ALDRIG af prisgrænsen - vi kan ikke
@@ -394,6 +554,7 @@
         cardsContainer.appendChild(buildCard(row));
 
         const tr = document.createElement("tr");
+        if (isPinned(row)) tr.classList.add("pinned");
 
         const priceCell = document.createElement("td");
         priceCell.className = "price-cell";
@@ -403,7 +564,19 @@
 
         const brandCell = document.createElement("td");
         brandCell.dataset.label = "Mærke";
-        brandCell.textContent = row.brand ? row.brand.charAt(0).toUpperCase() + row.brand.slice(1) : "-";
+        const brandWrap = document.createElement("span");
+        brandWrap.className = "inline-actions";
+        const brandText = document.createElement("span");
+        brandText.textContent = row.brand ? row.brand.charAt(0).toUpperCase() + row.brand.slice(1) : "-";
+        brandWrap.appendChild(brandText);
+        const editBrandBtn = document.createElement("button");
+        editBrandBtn.type = "button";
+        editBrandBtn.className = "icon-btn";
+        editBrandBtn.title = "Ret mærke";
+        editBrandBtn.textContent = "✎";
+        editBrandBtn.addEventListener("click", () => promptEditBrand(row));
+        brandWrap.appendChild(editBrandBtn);
+        brandCell.appendChild(brandWrap);
         tr.appendChild(brandCell);
 
         const targetCell = document.createElement("td");
@@ -435,6 +608,17 @@
 
         const actionCell = document.createElement("td");
         actionCell.dataset.label = "Handling";
+        const actionsWrap = document.createElement("span");
+        actionsWrap.className = "inline-actions";
+
+        const pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "icon-btn" + (isPinned(row) ? " active" : "");
+        pinBtn.title = isPinned(row) ? "Fjern pin" : "Pin øverst";
+        pinBtn.textContent = "📌";
+        pinBtn.addEventListener("click", () => setPinned(row.item_key, !isPinned(row)));
+        actionsWrap.appendChild(pinBtn);
+
         const actionBtn = document.createElement("button");
         actionBtn.type = "button";
         actionBtn.className = "row-action";
@@ -443,8 +627,13 @@
         // 2026-07-23: "Skjul" og "afvist" var to forskellige ord for samme
         // handling, forvirrende ved første øjekast).
         actionBtn.textContent = isDismissed(row) ? "Genskab" : "Afvis";
-        actionBtn.addEventListener("click", () => setDismissed(row.item_key, !isDismissed(row)));
-        actionCell.appendChild(actionBtn);
+        actionBtn.addEventListener("click", () => {
+          const next = !isDismissed(row);
+          setDismissed(row.item_key, next);
+          if (next) showUndoToast(row.item_key, row.title ?? "");
+        });
+        actionsWrap.appendChild(actionBtn);
+        actionCell.appendChild(actionsWrap);
         tr.appendChild(actionCell);
 
         tbody.appendChild(tr);
@@ -488,6 +677,46 @@
     document.getElementById("show-dismissed-toggle").addEventListener("change", (event) => {
       showDismissed = event.target.checked;
       renderTable();
+    });
+
+    // Manuel tilføjelse - for annoncer scraperen aldrig selv finder (fx
+    // Facebook Marketplace, se worker/src/index.ts's POST /api/listings).
+    // Skriver direkte til Turso og genindlæser bagefter (enkleste korrekte
+    // løsning - undgår at duplikere serverens item_key/dedup-logik i JS).
+    document.getElementById("show-add-form").addEventListener("click", () => {
+      const form = document.getElementById("manual-add-form");
+      form.style.display = form.style.display === "flex" ? "none" : "flex";
+    });
+    document.getElementById("cancel-add-form").addEventListener("click", () => {
+      const form = document.getElementById("manual-add-form");
+      form.reset();
+      form.style.display = "none";
+    });
+    document.getElementById("manual-add-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const title = document.getElementById("add-title").value.trim();
+      const url = document.getElementById("add-url").value.trim();
+      const priceVal = document.getElementById("add-price").value.trim();
+      const brandVal = document.getElementById("add-brand").value.trim();
+      if (!title || !url) return;
+      const res = await fetch(`${API_BASE}/api/listings`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          url,
+          price_dkk: priceVal ? Number(priceVal) : undefined,
+          brand: brandVal || undefined,
+        }),
+      });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke tilføje annoncen.";
+        return;
+      }
+      const form = document.getElementById("manual-add-form");
+      form.reset();
+      form.style.display = "none";
+      await loadListings();
     });
 
     document.getElementById("logout").addEventListener("click", async () => {

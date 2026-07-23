@@ -47,10 +47,11 @@ _LOOSE_PART_PATTERNS = [
     (re.compile(r"\b(senge\s*gavl|hovedgavl|sengegærde)\b", re.I), "løsdel (gavl)"),
     (
         re.compile(
-            r"\b(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller)\b",
+            r"\b(senge\s*stel|senge\s*ramme|senge\s*bund|elevationsbund|senge\s*lameller|lameller"
+            r"|senge\s*meder|meder)\b",
             re.I,
         ),
-        "løsdel (stel/ramme/lameller)",
+        "løsdel (stel/ramme/lameller/meder)",
     ),
     (re.compile(r"(madras\s*)?betræk", re.I), "løsdel (betræk)"),
 ]
@@ -62,7 +63,10 @@ _SEEKING_PATTERN = re.compile(r"^søger\b", re.I)
 # en juniorseng/hundeseng er forkert PRODUKTTYPE, ikke et støj-mønster et
 # ønske-mærke burde kunne "redde" - selv en Jensen-juniorseng er forkert.
 _WRONG_TYPE_PATTERN = re.compile(r"\b(junior\s*seng|børneseng|hunde\s*seng|dog\s*bed)\b", re.I)
-_TOPMADRAS_ALONE_PATTERN = re.compile(r"\btop\s*madras\b", re.I)
+# "Rullemadras" (billig rulle-/campingmadras) tilføjet 2026-07-23 - samme
+# kategori som løs topmadras: en billig, enkeltstående madras-type, ikke det
+# brugeren efterspørger, medmindre den saelges som del af en hel seng.
+_TOPMADRAS_ALONE_PATTERN = re.compile(r"\b(top\s*madras|rullemadras)\b", re.I)
 # INTET \b foran "seng": danske sammensætninger klistrer ordet paa uden
 # adskillelse ("enkeltmandsSENG", "dobbeltSENG", "gaesteSENG") - et \b-krav
 # foran ville aldrig kunne matche disse (ingen ord-graense mellem "ts" og
@@ -85,7 +89,9 @@ CREATE TABLE IF NOT EXISTS listings (
     dismissed INTEGER NOT NULL DEFAULT 0,
     dismissed_reason TEXT,
     brand TEXT,
-    image_url TEXT
+    brand_manual INTEGER NOT NULL DEFAULT 0,
+    image_url TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0
 );
 """
 TURSO_SCHEMA = LOCAL_SCHEMA
@@ -97,12 +103,18 @@ VALUES (:item_key, :target, :title, :price_dkk, :url, :first_seen, :last_seen,
     :dismissed, :dismissed_reason, :brand, :image_url)
 ON CONFLICT(item_key) DO UPDATE SET
     target = excluded.target, title = excluded.title, price_dkk = excluded.price_dkk,
-    url = excluded.url, last_seen = excluded.last_seen, brand = excluded.brand,
-    image_url = excluded.image_url
-    -- dismissed/dismissed_reason er BEVIDST udeladt her, se modulets docstring.
-    -- brand/image_url er IKKE følsomme paa samme maade (rent afledt af
-    -- titlen/DBA-kortet, ingen manuel override-risiko) og maa derfor gerne
-    -- genberegnes/opdateres ved re-sync.
+    url = excluded.url, last_seen = excluded.last_seen,
+    image_url = excluded.image_url,
+    -- 2026-07-23: brand kan nu rettes MANUELT (worker: POST .../brand,
+    -- ligesom dismiss). Uden dette tjek ville næste scrape, hver gang
+    -- prisen/titlen ellers ændrer sig, overskrive en manuel rettelse med
+    -- den auto-genkendte (formentlig tomme) værdi igen. brand_manual = 1
+    -- laases af Worker'en og røres ALDRIG af scraperen - kun sat/aflæst.
+    brand = CASE WHEN brand_manual = 1 THEN brand ELSE excluded.brand END
+    -- dismissed/dismissed_reason/brand_manual er BEVIDST udeladt her (se
+    -- modulets docstring) - kun sat/ændret via Worker'ens manuelle endpoints,
+    -- aldrig af scraperen. image_url er IKKE følsom paa samme maade (rent
+    -- afledt af DBA-kortet, ingen manuel override-risiko endnu).
 """
 
 
@@ -211,7 +223,9 @@ def run_source(
     add_column_if_missing(store.connection, "listings", "dismissed", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "dismissed_reason", "TEXT")
     add_column_if_missing(store.connection, "listings", "brand", "TEXT")
+    add_column_if_missing(store.connection, "listings", "brand_manual", "INTEGER NOT NULL DEFAULT 0")
     add_column_if_missing(store.connection, "listings", "image_url", "TEXT")
+    add_column_if_missing(store.connection, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0")
     raw_count = 0
     changed = 0
 

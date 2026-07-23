@@ -132,4 +132,97 @@ app.post("/api/listings/:itemKey/undismiss", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// 2026-07-23: manuel mærke-rettelse, for annoncer hvor auto-genkendelsen
+// (titel-tekst-match mod et fast mærkeord) ikke fanger et reelt ønske-mærke.
+// brand_manual = 1 laases her og beskytter mod at scraperens NÆSTE re-sync
+// overskriver rettelsen med den (formentlig tomme) auto-genkendte værdi -
+// se pipeline.py's ON CONFLICT-klausul (CASE WHEN brand_manual = 1 ...).
+app.post("/api/listings/:itemKey/brand", requireAuth, async (c) => {
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  let body: { brand?: string | null };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const brand = body.brand?.trim() || null;
+  const db = getDbClient(c.env);
+  await db.execute({
+    sql: "UPDATE listings SET brand = ?, brand_manual = 1 WHERE item_key = ?",
+    args: [brand, itemKey],
+  });
+  return c.json({ ok: true, brand });
+});
+
+app.post("/api/listings/:itemKey/pin", requireAuth, async (c) => {
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  const db = getDbClient(c.env);
+  await db.execute({
+    sql: "UPDATE listings SET pinned = 1 WHERE item_key = ?",
+    args: [itemKey],
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/listings/:itemKey/unpin", requireAuth, async (c) => {
+  const itemKey = c.req.param("itemKey");
+  if (!itemKey) {
+    return c.json({ error: "itemKey is required" }, 400);
+  }
+  const db = getDbClient(c.env);
+  await db.execute({
+    sql: "UPDATE listings SET pinned = 0 WHERE item_key = ?",
+    args: [itemKey],
+  });
+  return c.json({ ok: true });
+});
+
+// item_key skal matche PRÆCIS scraperens egen udregning (sha256(url)[:32],
+// se scraper/scraper/pipeline.py:make_item_key) - ellers ville en manuelt
+// tilføjet annonce og en senere scrapet udgave af SAMME url ende som to
+// forskellige rækker i stedet for at blive samme (korrekt, idempotent) række.
+async function makeItemKey(url: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url));
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hex.slice(0, 32);
+}
+
+// 2026-07-23: manuel tilføjelse af en annonce scraperen ALDRIG selv finder
+// (fx Facebook Marketplace - bevidst ikke scrapet, se FEATURES/README for
+// ToS/anti-bot-begrundelsen). Skriver DIREKTE til Turso, udenom scraperens
+// delta-sync-outbox helt - target='Manuel tilføjelse' gør det tydeligt i
+// UI'et hvilke rækker der ikke stammer fra DBA-scraperen.
+app.post("/api/listings", requireAuth, async (c) => {
+  type ManualListingBody = { title?: string; price_dkk?: number; url?: string; brand?: string };
+  let body: ManualListingBody;
+  try {
+    body = await c.req.json<ManualListingBody>();
+  } catch {
+    body = {};
+  }
+  if (!body.title || !body.url) {
+    return c.json({ error: "title and url are required" }, 400);
+  }
+
+  const itemKey = await makeItemKey(body.url);
+  const now = new Date().toISOString();
+  const brand = body.brand?.trim() || null;
+  const db = getDbClient(c.env);
+  await db.execute({
+    sql: `INSERT INTO listings (item_key, target, title, price_dkk, url, first_seen, last_seen,
+            dismissed, dismissed_reason, brand, brand_manual, image_url, pinned)
+          VALUES (?, 'Manuel tilføjelse', ?, ?, ?, ?, ?, 0, NULL, ?, ?, NULL, 0)
+          ON CONFLICT(item_key) DO UPDATE SET
+            title = excluded.title, price_dkk = excluded.price_dkk, last_seen = excluded.last_seen`,
+    args: [itemKey, body.title, body.price_dkk ?? null, body.url, now, now, brand, brand ? 1 : 0],
+  });
+  return c.json({ ok: true, item_key: itemKey });
+});
+
 export default app;

@@ -45,7 +45,13 @@ def run() -> int:
                     )
                     add_column_if_missing(turso, "listings", "dismissed_reason", "TEXT")
                     add_column_if_missing(turso, "listings", "brand", "TEXT")
+                    add_column_if_missing(
+                        turso, "listings", "brand_manual", "INTEGER NOT NULL DEFAULT 0"
+                    )
                     add_column_if_missing(turso, "listings", "image_url", "TEXT")
+                    add_column_if_missing(
+                        turso, "listings", "pinned", "INTEGER NOT NULL DEFAULT 0"
+                    )
                     synced = sync_pending(store, turso)
                 logger.info(
                     "run complete: %d raw, %d new/changed, %d synced to Turso",
