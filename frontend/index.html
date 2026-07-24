@@ -8,6 +8,12 @@
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 20px auto; padding: 0 12px; }
     .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
     .toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #666; }
+    a.settings-link {
+      display: inline-block; padding: 1px 12px; border: 1px solid #767676;
+      border-radius: 4px; color: inherit; text-decoration: none; font-size: 0.85rem;
+      line-height: 1.9; background: #efefef;
+    }
+    a.settings-link:hover { background: #e0e0e0; }
     table { border-collapse: collapse; width: 100%; font-size: 0.9rem; table-layout: fixed; }
     th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Desktop-kolonnebredder - Titel skal have mest plads, Handling mindst.
@@ -138,6 +144,7 @@
     <button id="reload">Genindlæs</button>
     <button id="reset-filters" type="button">Nulstil filtre</button>
     <button id="show-add-form" type="button">+ Tilføj annonce</button>
+    <a href="settings.html" class="settings-link">⚙ Indstillinger</a>
   </div>
   <p id="active-filters-note"></p>
 

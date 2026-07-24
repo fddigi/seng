@@ -225,4 +225,106 @@ app.post("/api/listings", requireAuth, async (c) => {
   return c.json({ ok: true, item_key: itemKey });
 });
 
+// --- Kontrolpanel (2026-07-24): søgemål (targets) og de simple auto-afvis-
+// lister er redigerbare via frontend'ens settings.html, gemt i Turso's
+// app_config-tabel. Scraperen (beds_config.py:apply_turso_config_overrides)
+// læser disse ved hver kørsel og overlejrer dem oven på config.yaml. De
+// avancerede regex-mønster-reglerne (topmadras/sengegavl/lamelbund osv.) er
+// BEVIDST IKKE her - det er kode, ikke konfiguration, se pipeline.py. ---
+
+type TargetConfig = {
+  name: string;
+  url: string;
+  skip_auto_dismiss?: boolean;
+  force_dismiss_reason?: string;
+  desired_width_cm?: [number, number];
+};
+
+const APP_CONFIG_KEYS = [
+  "targets",
+  "auto_dismiss_brands",
+  "auto_dismiss_sizes",
+  "auto_dismiss_whitelist_keywords",
+] as const;
+type AppConfigKey = (typeof APP_CONFIG_KEYS)[number];
+
+function validateAppConfigValue(key: AppConfigKey, value: unknown): string | null {
+  if (!Array.isArray(value)) return `${key} skal være en liste`;
+  if (key === "targets") {
+    for (const t of value as unknown[]) {
+      if (typeof t !== "object" || t === null) return "hvert mål skal være et objekt";
+      const target = t as Partial<TargetConfig>;
+      if (typeof target.name !== "string" || !target.name.trim()) {
+        return "hvert mål skal have et navn";
+      }
+      if (typeof target.url !== "string" || !target.url.trim()) {
+        return `målet "${target.name}" mangler en URL`;
+      }
+      if (
+        target.desired_width_cm !== undefined &&
+        (!Array.isArray(target.desired_width_cm) ||
+          target.desired_width_cm.length !== 2 ||
+          !target.desired_width_cm.every((n) => typeof n === "number"))
+      ) {
+        return `målet "${target.name}"s desired_width_cm skal være [min, max]`;
+      }
+    }
+  } else if (key === "auto_dismiss_sizes") {
+    if (!(value as unknown[]).every((v) => typeof v === "number")) {
+      return `${key} skal kun indeholde tal`;
+    }
+  } else {
+    if (!(value as unknown[]).every((v) => typeof v === "string")) {
+      return `${key} skal kun indeholde tekst`;
+    }
+  }
+  return null;
+}
+
+app.get("/api/config", requireAuth, async (c) => {
+  const db = getDbClient(c.env);
+  const result = await db.execute({
+    sql: `SELECT key, value_json FROM app_config WHERE key IN (${APP_CONFIG_KEYS.map(() => "?").join(",")})`,
+    args: APP_CONFIG_KEYS as unknown as string[],
+  });
+  const config: Partial<Record<AppConfigKey, unknown>> = {};
+  for (const row of result.rows) {
+    const key = row[0] as AppConfigKey;
+    config[key] = JSON.parse(row[1] as string);
+  }
+  return c.json(config);
+});
+
+app.post("/api/config", requireAuth, async (c) => {
+  let body: Partial<Record<AppConfigKey, unknown>>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const updates: [AppConfigKey, unknown][] = [];
+  for (const key of APP_CONFIG_KEYS) {
+    if (key in body) {
+      const error = validateAppConfigValue(key, body[key]);
+      if (error) return c.json({ error }, 400);
+      updates.push([key, body[key]]);
+    }
+  }
+  if (updates.length === 0) {
+    return c.json({ error: "no known config keys in body" }, 400);
+  }
+
+  const db = getDbClient(c.env);
+  const now = new Date().toISOString();
+  for (const [key, value] of updates) {
+    await db.execute({
+      sql: `INSERT INTO app_config (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      args: [key, JSON.stringify(value), now],
+    });
+  }
+  return c.json({ ok: true, updated: updates.map(([key]) => key) });
+});
+
 export default app;

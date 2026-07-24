@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <title>Indstillinger - Senge</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 20px auto; padding: 0 12px; }
+    a.back-link { color: #0645ad; text-decoration: none; font-size: 0.9rem; }
+    a.back-link:hover { text-decoration: underline; }
+    h1 { margin-top: 8px; }
+    h2 { margin-top: 36px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    p.hint { color: #666; font-size: 0.85rem; margin-top: -6px; }
+    .target-card {
+      border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 10px 0;
+      display: flex; flex-direction: column; gap: 6px; position: relative;
+    }
+    .target-card label { font-size: 0.8rem; color: #555; display: block; margin-bottom: 2px; }
+    .target-card input[type="text"], .target-card textarea {
+      width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit;
+    }
+    .target-card textarea { resize: vertical; min-height: 44px; font-size: 0.8rem; }
+    .target-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .target-row > div { flex: 1 1 160px; }
+    .target-flags { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; font-size: 0.85rem; }
+    .width-inputs { display: flex; gap: 4px; align-items: center; }
+    .width-inputs input { width: 60px !important; }
+    button.remove-target {
+      position: absolute; top: 10px; right: 10px; background: none; border: none;
+      color: #a33; cursor: pointer; font-size: 0.85rem;
+    }
+    button.add-target { margin: 10px 0; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; min-height: 30px; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 6px; background: #eef2ff;
+      border: 1px solid #c7d2fe; border-radius: 14px; padding: 3px 6px 3px 12px; font-size: 0.85rem;
+    }
+    .tag button {
+      background: none; border: none; cursor: pointer; color: #4338ca; font-size: 0.9rem;
+      padding: 0 4px; line-height: 1;
+    }
+    .tag-add-row { display: flex; gap: 6px; }
+    .tag-add-row input { padding: 5px 8px; flex: 1 1 auto; }
+    .save-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .save-status { font-size: 0.85rem; color: #2a2; }
+    .save-status.error { color: #a33; }
+    button.primary { background: #2563eb; color: white; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; }
+    button.primary:hover { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <a class="back-link" href="index.html">← Tilbage til annoncer</a>
+  <h1>Indstillinger</h1>
+  <p>Logget ind som <span id="whoami">...</span> (<button id="logout">log ud</button>)</p>
+  <p class="hint">
+    Ændringer her træder i kraft fra scraperens NÆSTE kørsel (typisk indenfor en time).
+    Avancerede støj-mønstre (topmadras/sengegavl/lamelbund m.fl.) er ikke redigerbare her -
+    rapportér en konkret annonce-URL som hidtil, hvis en ny slags støj skal filtreres væk.
+  </p>
+
+  <h2>Søgemål</h2>
+  <p class="hint">Hver række er en gemt DBA-søgning. Rækkefølgen har betydning for mål med "Afvis altid"/"Undtag fra auto-afvisning" - se kommentaren øverst i config.yaml hvis du er i tvivl.</p>
+  <div id="targets-list"></div>
+  <button type="button" class="add-target" id="add-target">+ Tilføj mål</button>
+  <div class="save-row">
+    <button type="button" class="primary" id="save-targets">Gem søgemål</button>
+    <span class="save-status" id="targets-status"></span>
+  </div>
+
+  <h2>Auto-afvis mærker</h2>
+  <p class="hint">Annoncer der nævner et af disse ord i titlen, afvises automatisk (lav kvalitet/ikke-interesse).</p>
+  <div class="tag-list" id="brands-list"></div>
+  <div class="tag-add-row">
+    <input type="text" id="brands-input" placeholder="Tilføj mærke..." />
+    <button type="button" id="brands-add">Tilføj</button>
+  </div>
+  <div class="save-row">
+    <button type="button" class="primary" id="save-brands">Gem</button>
+    <span class="save-status" id="brands-status"></span>
+  </div>
+
+  <h2>Uønskede størrelser (cm)</h2>
+  <p class="hint">Annoncer hvor et af disse tal optræder som et selvstændigt mål i titlen, afvises automatisk.</p>
+  <div class="tag-list" id="sizes-list"></div>
+  <div class="tag-add-row">
+    <input type="number" id="sizes-input" placeholder="Tilføj størrelse..." />
+    <button type="button" id="sizes-add">Tilføj</button>
+  </div>
+  <div class="save-row">
+    <button type="button" class="primary" id="save-sizes">Gem</button>
+    <span class="save-status" id="sizes-status"></span>
+  </div>
+
+  <h2>Ønske-mærker (whitelist)</h2>
+  <p class="hint">Beskytter løsdele-mønstre (stel/ramme/lameller m.fl.) mod afvisning, og bruges til mærke-tagging i UI'et.</p>
+  <div class="tag-list" id="whitelist-list"></div>
+  <div class="tag-add-row">
+    <input type="text" id="whitelist-input" placeholder="Tilføj mærke..." />
+    <button type="button" id="whitelist-add">Tilføj</button>
+  </div>
+  <div class="save-row">
+    <button type="button" class="primary" id="save-whitelist">Gem</button>
+    <span class="save-status" id="whitelist-status"></span>
+  </div>
+
+  <p id="error" style="color: red"></p>
+
+  <script src="config.js"></script>
+  <script>
+    let currentConfig = { targets: [], auto_dismiss_brands: [], auto_dismiss_sizes: [], auto_dismiss_whitelist_keywords: [] };
+
+    function authHeaders() {
+      const token = localStorage.getItem("session_token");
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    async function requireSession() {
+      if (!localStorage.getItem("session_token")) {
+        window.location.href = "login.html";
+        return null;
+      }
+      const res = await fetch(`${API_BASE}/api/me`, { headers: authHeaders() });
+      if (!res.ok) {
+        localStorage.removeItem("session_token");
+        window.location.href = "login.html";
+        return null;
+      }
+      return res.json();
+    }
+
+    async function loadConfig() {
+      const res = await fetch(`${API_BASE}/api/config`, { headers: authHeaders() });
+      if (!res.ok) {
+        document.getElementById("error").textContent = "Kunne ikke hente konfiguration.";
+        return;
+      }
+      const data = await res.json();
+      // Muterer de EKSISTERENDE array-referencer i stedet for at erstatte
+      // currentConfig helt - setupTagAdder() nedenfor fangede allerede en
+      // reference til disse arrays ved side-indlæsning (før serverdata kom
+      // tilbage); en fuld genudskiftning her ville have efterladt "tilføj"-
+      // knapperne pegende på de gamle, tomme arrays for evigt.
+      currentConfig.targets.length = 0;
+      currentConfig.targets.push(...(data.targets ?? []));
+      currentConfig.auto_dismiss_brands.length = 0;
+      currentConfig.auto_dismiss_brands.push(...(data.auto_dismiss_brands ?? []));
+      currentConfig.auto_dismiss_sizes.length = 0;
+      currentConfig.auto_dismiss_sizes.push(...(data.auto_dismiss_sizes ?? []));
+      currentConfig.auto_dismiss_whitelist_keywords.length = 0;
+      currentConfig.auto_dismiss_whitelist_keywords.push(...(data.auto_dismiss_whitelist_keywords ?? []));
+      renderTargets();
+      renderAllTagLists();
+    }
+
+    // --- Søgemål ---
+    function renderTargets() {
+      const container = document.getElementById("targets-list");
+      container.innerHTML = "";
+      currentConfig.targets.forEach((target, index) => {
+        container.appendChild(buildTargetCard(target, index));
+      });
+    }
+
+    function buildTargetCard(target, index) {
+      const card = document.createElement("div");
+      card.className = "target-card";
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "remove-target";
+      removeBtn.textContent = "✕ Fjern";
+      removeBtn.addEventListener("click", () => {
+        currentConfig.targets.splice(index, 1);
+        renderTargets();
+      });
+      card.appendChild(removeBtn);
+
+      const row1 = document.createElement("div");
+      row1.className = "target-row";
+      const nameField = document.createElement("div");
+      nameField.innerHTML = '<label>Navn</label>';
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.value = target.name ?? "";
+      nameInput.addEventListener("input", () => { target.name = nameInput.value; });
+      nameField.appendChild(nameInput);
+      row1.appendChild(nameField);
+      card.appendChild(row1);
+
+      const urlLabel = document.createElement("label");
+      urlLabel.textContent = "DBA søge-URL";
+      card.appendChild(urlLabel);
+      const urlInput = document.createElement("textarea");
+      urlInput.value = target.url ?? "";
+      urlInput.addEventListener("input", () => { target.url = urlInput.value; });
+      card.appendChild(urlInput);
+
+      const flags = document.createElement("div");
+      flags.className = "target-flags";
+
+      const skipLabel = document.createElement("label");
+      skipLabel.style.display = "flex";
+      skipLabel.style.alignItems = "center";
+      skipLabel.style.gap = "4px";
+      const skipCheckbox = document.createElement("input");
+      skipCheckbox.type = "checkbox";
+      skipCheckbox.checked = !!target.skip_auto_dismiss;
+      skipCheckbox.addEventListener("change", () => {
+        if (skipCheckbox.checked) target.skip_auto_dismiss = true;
+        else delete target.skip_auto_dismiss;
+      });
+      skipLabel.appendChild(skipCheckbox);
+      skipLabel.appendChild(document.createTextNode("Undtag fra auto-afvisning"));
+      flags.appendChild(skipLabel);
+
+      const reasonLabel = document.createElement("label");
+      reasonLabel.style.display = "flex";
+      reasonLabel.style.alignItems = "center";
+      reasonLabel.style.gap = "4px";
+      reasonLabel.appendChild(document.createTextNode("Afvis altid, årsag:"));
+      const reasonInput = document.createElement("input");
+      reasonInput.type = "text";
+      reasonInput.style.width = "160px";
+      reasonInput.placeholder = "(tom = normal vurdering)";
+      reasonInput.value = target.force_dismiss_reason ?? "";
+      reasonInput.addEventListener("input", () => {
+        if (reasonInput.value.trim()) target.force_dismiss_reason = reasonInput.value.trim();
+        else delete target.force_dismiss_reason;
+      });
+      reasonLabel.appendChild(reasonInput);
+      flags.appendChild(reasonLabel);
+
+      const widthLabel = document.createElement("label");
+      widthLabel.style.display = "flex";
+      widthLabel.style.alignItems = "center";
+      widthLabel.style.gap = "4px";
+      widthLabel.appendChild(document.createTextNode("Ønsket bredde (cm):"));
+      const widthWrap = document.createElement("span");
+      widthWrap.className = "width-inputs";
+      const widthMin = document.createElement("input");
+      widthMin.type = "number";
+      widthMin.placeholder = "min";
+      widthMin.value = target.desired_width_cm?.[0] ?? "";
+      const widthMax = document.createElement("input");
+      widthMax.type = "number";
+      widthMax.placeholder = "max";
+      widthMax.value = target.desired_width_cm?.[1] ?? "";
+      function syncWidth() {
+        const min = widthMin.value.trim();
+        const max = widthMax.value.trim();
+        if (min && max) target.desired_width_cm = [Number(min), Number(max)];
+        else delete target.desired_width_cm;
+      }
+      widthMin.addEventListener("input", syncWidth);
+      widthMax.addEventListener("input", syncWidth);
+      widthWrap.appendChild(widthMin);
+      widthWrap.appendChild(document.createTextNode("–"));
+      widthWrap.appendChild(widthMax);
+      widthLabel.appendChild(widthWrap);
+      flags.appendChild(widthLabel);
+
+      card.appendChild(flags);
+      return card;
+    }
+
+    document.getElementById("add-target").addEventListener("click", () => {
+      currentConfig.targets.push({ name: "", url: "" });
+      renderTargets();
+    });
+
+    document.getElementById("save-targets").addEventListener("click", () => {
+      saveConfigKey("targets", currentConfig.targets, "targets-status");
+    });
+
+    // --- Tag-lister (mærker/størrelser/whitelist) ---
+    function renderAllTagLists() {
+      renderTagList("brands-list", currentConfig.auto_dismiss_brands);
+      renderTagList("sizes-list", currentConfig.auto_dismiss_sizes);
+      renderTagList("whitelist-list", currentConfig.auto_dismiss_whitelist_keywords);
+    }
+
+    function renderTagList(containerId, list) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      list.forEach((value, index) => {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.appendChild(document.createTextNode(String(value)));
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+          list.splice(index, 1);
+          renderTagList(containerId, list);
+        });
+        tag.appendChild(removeBtn);
+        container.appendChild(tag);
+      });
+    }
+
+    function setupTagAdder(inputId, addBtnId, listContainerId, list, isNumber) {
+      const input = document.getElementById(inputId);
+      const addBtn = document.getElementById(addBtnId);
+      function addValue() {
+        const raw = input.value.trim();
+        if (!raw) return;
+        const value = isNumber ? Number(raw) : raw.toLowerCase();
+        if (isNumber && Number.isNaN(value)) return;
+        if (list.includes(value)) { input.value = ""; return; }
+        list.push(value);
+        input.value = "";
+        renderTagList(listContainerId, list);
+      }
+      addBtn.addEventListener("click", addValue);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); addValue(); }
+      });
+    }
+
+    setupTagAdder("brands-input", "brands-add", "brands-list", currentConfig.auto_dismiss_brands, false);
+    setupTagAdder("sizes-input", "sizes-add", "sizes-list", currentConfig.auto_dismiss_sizes, true);
+    setupTagAdder("whitelist-input", "whitelist-add", "whitelist-list", currentConfig.auto_dismiss_whitelist_keywords, false);
+
+    document.getElementById("save-brands").addEventListener("click", () => {
+      saveConfigKey("auto_dismiss_brands", currentConfig.auto_dismiss_brands, "brands-status");
+    });
+    document.getElementById("save-sizes").addEventListener("click", () => {
+      saveConfigKey("auto_dismiss_sizes", currentConfig.auto_dismiss_sizes, "sizes-status");
+    });
+    document.getElementById("save-whitelist").addEventListener("click", () => {
+      saveConfigKey("auto_dismiss_whitelist_keywords", currentConfig.auto_dismiss_whitelist_keywords, "whitelist-status");
+    });
+
+    async function saveConfigKey(key, value, statusElId) {
+      const statusEl = document.getElementById(statusElId);
+      statusEl.textContent = "Gemmer...";
+      statusEl.className = "save-status";
+      try {
+        const res = await fetch(`${API_BASE}/api/config`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusEl.textContent = data.error || "Kunne ikke gemme.";
+          statusEl.className = "save-status error";
+          return;
+        }
+        statusEl.textContent = "Gemt ✓";
+        setTimeout(() => { statusEl.textContent = ""; }, 3000);
+      } catch {
+        statusEl.textContent = "Kunne ikke kontakte serveren.";
+        statusEl.className = "save-status error";
+      }
+    }
+
+    document.getElementById("logout").addEventListener("click", async () => {
+      await fetch(`${API_BASE}/logout`, { method: "POST", headers: authHeaders() }).catch(() => {});
+      localStorage.removeItem("session_token");
+      window.location.href = "login.html";
+    });
+
+    (async () => {
+      const me = await requireSession();
+      if (!me) return;
+      document.getElementById("whoami").textContent = me.username;
+      await loadConfig();
+    })();
+  </script>
+</body>
+</html>

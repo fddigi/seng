@@ -18,7 +18,7 @@ from scraper_core.logging_setup import configure_logging
 from scraper_core.sync import sync_pending
 from scraper_core.turso_client import TursoClient
 
-from scraper.beds_config import load_config
+from scraper.beds_config import apply_turso_config_overrides, load_config
 from scraper.pipeline import (
     SYNC_CONDITIONAL_COLUMNS,
     SYNC_PROTECTED_COLUMNS,
@@ -37,11 +37,18 @@ def run() -> int:
     beds_config = load_config()
 
     try:
-        with LocalStore(settings.local_sqlite_path) as store:
-            raw_count, changed = run_source(store, "dba", dba.fetch, beds_config)
+        if settings.turso_configured:
+            # TursoClient åbnes FØR run_source (ikke kun til slut-synken
+            # som tidligere) - 2026-07-24: targets/dismiss-lister kan nu
+            # redigeres via frontend'ens kontrolpanel og skrives til Turso's
+            # app_config-tabel, saa den friske konfiguration skal hentes
+            # FØR selve scrapet bruger den, ikke bagefter.
+            with TursoClient(settings) as turso:
+                beds_config = apply_turso_config_overrides(beds_config, turso)
 
-            if settings.turso_configured:
-                with TursoClient(settings) as turso:
+                with LocalStore(settings.local_sqlite_path) as store:
+                    raw_count, changed = run_source(store, "dba", dba.fetch, beds_config)
+
                     turso.execute(TURSO_SCHEMA)  # idempotent schema migration, not a data rewrite
                     # Additive migration for the already-existing listings table
                     # (predates dismissed/dismissed_reason) - see schema_utils.py.
@@ -83,17 +90,19 @@ def run() -> int:
                         synced += batch_synced
                         if batch_synced == 0:
                             break
-                logger.info(
-                    "run complete: %d raw, %d new/changed, %d synced to Turso",
-                    raw_count, changed, synced,
-                )
-            else:
-                # Graceful fallback: no Turso credentials configured -> local-only mode.
-                logger.warning(
-                    "TURSO_DATABASE_URL/TURSO_AUTH_TOKEN not set - skipping Turso sync "
-                    "(local-only mode). %d new/changed item(s) queued locally.",
-                    changed,
-                )
+            logger.info(
+                "run complete: %d raw, %d new/changed, %d synced to Turso",
+                raw_count, changed, synced,
+            )
+        else:
+            # Graceful fallback: no Turso credentials configured -> local-only mode.
+            with LocalStore(settings.local_sqlite_path) as store:
+                raw_count, changed = run_source(store, "dba", dba.fetch, beds_config)
+            logger.warning(
+                "TURSO_DATABASE_URL/TURSO_AUTH_TOKEN not set - skipping Turso sync "
+                "(local-only mode). %d new/changed item(s) queued locally.",
+                changed,
+            )
     except Exception:
         logger.exception("scrape run failed")
         ping_fail(settings.healthcheck_url)

@@ -30,5 +30,17 @@ CREATE TABLE IF NOT EXISTS listings (
     brand TEXT,
     brand_manual INTEGER NOT NULL DEFAULT 0,
     image_url TEXT,
-    pinned INTEGER NOT NULL DEFAULT 0
+    pinned INTEGER NOT NULL DEFAULT 0,
+    misses INTEGER NOT NULL DEFAULT 0
+);
+
+-- 2026-07-24: kontrolpanelets redigerbare scraper-konfiguration (søgemål,
+-- auto-afvis-lister) - matcher scraper/scraper/beds_config.py's
+-- APP_CONFIG_SCHEMA, som scraperen selv opretter ved kørsel. Kun bestemte
+-- nøgler (se TURSO_OVERRIDABLE_KEYS i samme fil) læses/skrives - Playwright-
+-- driftsindstillinger forbliver udelukkende i config.yaml.
+CREATE TABLE IF NOT EXISTS app_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
