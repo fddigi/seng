@@ -98,7 +98,14 @@ app.get("/api/me", requireAuth, (c) => {
 
 app.get("/api/listings", requireAuth, async (c) => {
   const db = getDbClient(c.env);
-  const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
+  // 2026-07-24: default var 500, sorteret PRIS STIGENDE - med 637+ rækker i
+  // databasen blev de dyreste annoncer (inkl. en 12.000 kr madras) simpelthen
+  // skåret væk FØR de nåede browseren, uafhængigt af frontend'ens prisfilter
+  // ("Vis alt" kan ikke redde data der aldrig blev sendt). Frontend'en gør
+  // allerede sin egen klient-side filtrering (pris/mærke/afvist/stale), så
+  // der er ingen grund til en lav server-side grænse - default matcher nu
+  // det eksisterende loft på 2000.
+  const limit = Math.min(Number(c.req.query("limit") ?? "2000") || 2000, 2000);
   const result = await db.execute({
     sql: "SELECT * FROM listings ORDER BY price_dkk ASC LIMIT ?",
     args: [limit],
