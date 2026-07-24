@@ -297,8 +297,19 @@ def _auto_dismiss(title: str, target_name: str, config: dict) -> tuple[bool, str
     if _UNDESIRED_MATERIAL_PATTERN.search(title) and not _SENG_PATTERN.search(title):
         return True, "auto:skummadras"
 
-    if _LOOSE_GAVL_ALONE_PATTERN.search(title) and not _GENUINE_BED_WORD_PATTERN.search(title):
-        return True, "auto:sengegavl-alene"
+    gavl_match = _LOOSE_GAVL_ALONE_PATTERN.search(title)
+    if gavl_match:
+        # Positions-tjek, ikke bare "findes et seng-ord nogen steder" - fundet
+        # 2026-07-24 via regressions-diff: "Ellos sengegavl blå TIL dobbeltseng"
+        # blev fejlagtigt IKKE afvist, fordi "dobbeltseng" nævnes et sted i
+        # titlen, selvom varen tydeligvis ER en løs gavl der bare passer til
+        # en dobbeltseng ("gavl ... til X"), ikke en hel seng der medfølger en
+        # gavl ("X med/inkl. gavl"). Et ægte seng-ord der kommer FØR gavl-
+        # ordet ("Dobbeltseng med sengegavl") beskriver varen; et der kommer
+        # EFTER ("Sengegavl ... til dobbeltseng") beskriver kun kompatibilitet.
+        bed_word_match = _GENUINE_BED_WORD_PATTERN.search(title)
+        if not bed_word_match or bed_word_match.start() > gavl_match.start():
+            return True, "auto:sengegavl-alene"
 
     if (
         _LOOSE_BASE_ALONE_PATTERN.search(title)
