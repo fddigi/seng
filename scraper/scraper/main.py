@@ -60,12 +60,29 @@ def run() -> int:
                     add_column_if_missing(
                         turso, "listings", "misses", "INTEGER NOT NULL DEFAULT 0"
                     )
-                    synced = sync_pending(
-                        store,
-                        turso,
-                        protected_update_columns=SYNC_PROTECTED_COLUMNS,
-                        conditional_update_columns=SYNC_CONDITIONAL_COLUMNS,
-                    )
+                    # 2026-07-24: sync_pending() only drains ONE batch (200
+                    # rows default) per call - a single run's own outbox
+                    # volume can easily exceed that (last_seen touches for
+                    # every unchanged-but-found row, PLUS misses-counter
+                    # updates for every non-dismissed row not found this run,
+                    # both added 2026-07-23) - found in production: the queue
+                    # grew to 4328 unsynced rows over ~10 hours because each
+                    # hourly run only ever cleared one batch, never catching
+                    # up. Loop until fully drained (capped so a persistent
+                    # failure can't spin forever - see sync_pending's own
+                    # per-row isolation for why a single bad row won't block
+                    # this loop either).
+                    synced = 0
+                    for _ in range(100):  # 100 * 200 = 20,000 rows/run ceiling
+                        batch_synced = sync_pending(
+                            store,
+                            turso,
+                            protected_update_columns=SYNC_PROTECTED_COLUMNS,
+                            conditional_update_columns=SYNC_CONDITIONAL_COLUMNS,
+                        )
+                        synced += batch_synced
+                        if batch_synced == 0:
+                            break
                 logger.info(
                     "run complete: %d raw, %d new/changed, %d synced to Turso",
                     raw_count, changed, synced,
