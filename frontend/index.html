@@ -203,6 +203,14 @@
     const STALE_MISS_THRESHOLD = 3;
 
     function isStale(row) {
+      // Manuelt tilføjede annoncer (Facebook Marketplace mv.) bliver ALDRIG
+      // genscrapet - der findes intet søgemål der genfinder dem, saa deres
+      // last_seen fryser for evigt paa tilføjelsestidspunktet. Uden denne
+      // undtagelse ville enhver manuel tilføjelse uundgaaeligt ramme 48-timers-
+      // graensen og forsvinde fra visningen efter et par dage, selvom den
+      // aldrig er blevet afvist eller solgt - fundet 2026-08-06 via "Dux 1001"
+      // og 3 andre manuelle tilføjelser der alle var >12 dage gamle.
+      if (row.target === "Manuel tilføjelse") return false;
       if ((row.misses ?? 0) >= STALE_MISS_THRESHOLD) return true;
       if (!row.last_seen) return false;
       return Date.now() - new Date(row.last_seen).getTime() > STALE_HOURS * 3600 * 1000;
