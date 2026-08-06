@@ -527,11 +527,17 @@
 
       const filtered = allListings.filter((row) => {
         if (!showDismissed && isDismissed(row)) return false;
-        if (!showStale && isStale(row)) return false;
-        // Fastgjorte annoncer springer pris/mærke/søgefilter over (samme
-        // "pinned bypasser filtre"-logik som ejendompython) - dismissed/stale
-        // styrer stadig, det er ikke en "vis for evigt uanset alt"-flag.
+        // 2026-08-06: pin bypasser NU ogsaa "formodet solgt" (stale/misses) -
+        // fandt et konkret tilfaelde hvor en bruger pinnede en udloebet DBA-
+        // annonce de selv havde forhandlet en pris paa udenom platformen,
+        // men scraperens misses-taeller (der korrekt bliver ved med at stige,
+        // da annoncen jo reelt er vaek fra soegningen) skjulte den igen inden
+        // for faa timer alligevel. En manuel pin er et staerkere, nyere signal
+        // end scraperens automatiske "formodet solgt"-gaet - dismissed staar
+        // FOER pin-tjekket, saa en efterfoelgende manuel afvisning stadig kan
+        // overtrumfe en tidligere pin.
         if (isPinned(row)) return true;
+        if (!showStale && isStale(row)) return false;
         if (brandFilter === "__any__" && !row.brand) return false;
         if (brandFilter && brandFilter !== "__any__" && row.brand !== brandFilter) return false;
         // Ukendt pris (null) skjules ALDRIG af prisgrænsen - vi kan ikke

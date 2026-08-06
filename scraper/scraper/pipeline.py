@@ -447,11 +447,17 @@ def run_source(
         # soegning, og en forgaeves-taelling her ville kunne give falske
         # positiver for HELE maalets bestand paa én gang - se STALE_MISS_
         # THRESHOLD's kommentar.
+        # AND pinned = 0 tilføjet 2026-08-06: en fastgjort annonce er allerede
+        # undtaget fra "formodet solgt"-visningen (frontend), men uden dette
+        # ville misses fortsætte med at vokse ubegrænset i baggrunden for en
+        # ellers reelt udløbet/væk annonce brugeren bevidst har valgt at
+        # beholde - ren datahygiejne, ingen synlig effekt i sig selv.
         for target_name, found_keys in found_keys_by_target.items():
             if not found_keys:
                 continue
             rows = store.connection.execute(
-                "SELECT item_key, misses FROM listings WHERE target = ? AND dismissed = 0",
+                "SELECT item_key, misses FROM listings "
+                "WHERE target = ? AND dismissed = 0 AND pinned = 0",
                 (target_name,),
             ).fetchall()
             for row in rows:
