@@ -226,7 +226,9 @@ app.post("/api/listings", requireAuth, async (c) => {
             dismissed, dismissed_reason, brand, brand_manual, image_url, pinned)
           VALUES (?, 'Manuel tilføjelse', ?, ?, ?, ?, ?, 0, NULL, ?, ?, NULL, 0)
           ON CONFLICT(item_key) DO UPDATE SET
-            title = excluded.title, price_dkk = excluded.price_dkk, last_seen = excluded.last_seen,
+            title = excluded.title,
+            price_dkk = COALESCE(excluded.price_dkk, price_dkk),
+            last_seen = excluded.last_seen,
             dismissed = 0, dismissed_reason = NULL, misses = 0`,
     // 2026-08-06: samme URL kan allerede være fundet af scraperen selv (fx
     // Wonderland-madraskerne, item_key ens uanset kilde siden den udledes af
@@ -236,6 +238,10 @@ app.post("/api/listings", requireAuth, async (c) => {
     // bekræfter at annoncen stadig er relevant. Nulstilles derfor begge dele -
     // en manuel tilføjelse er en lige saa staerk "vis denne"-erklaering som
     // pin/undismiss.
+    // price_dkk bruger COALESCE (behold eksisterende hvis ny er NULL/udeladt) -
+    // en gen-tilføjelse UDEN pris (fx fordi feltet blev efterladt tomt) skal
+    // IKKE kunne slette en allerede kendt/forhandlet pris. Fundet 2026-08-06
+    // da netop dette skete for en brugers forhandlede 100 kr-pris.
     args: [itemKey, body.title, body.price_dkk ?? null, body.url, now, now, brand, brand ? 1 : 0],
   });
   return c.json({ ok: true, item_key: itemKey });
